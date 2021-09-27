@@ -147,11 +147,15 @@ impl Graphics for WgpuGraphics {
         });
     }
 
-    fn tri_list_c<F>(&mut self, draw_state: &DrawState, f: F)
+    fn tri_list_c<F>(&mut self, draw_state: &DrawState, mut f: F)
     where
         F: FnMut(&mut dyn FnMut(&[[f32; 2]], &[[f32; 4]])),
     {
-        todo!()
+        f(&mut |positions, colors| {
+            for (&position, &color) in positions.iter().zip(colors.iter()) {
+                self.vertices.push(VertexInput { position, color });
+            }
+        });
     }
 
     fn tri_list_uv<F>(&mut self, draw_state: &DrawState, color: &[f32; 4], texture: &Texture, f: F)
