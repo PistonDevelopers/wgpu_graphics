@@ -1,4 +1,4 @@
-use graphics::clear;
+use graphics::{clear, rectangle};
 use piston::{
     ButtonEvent, ButtonState, EventSettings, Events, RenderEvent, ResizeArgs, ResizeEvent, Window,
     WindowSettings,
@@ -61,9 +61,17 @@ fn main() {
             let surface_texture = &surface.get_current_frame().unwrap().output.texture;
             let surface_view = surface_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-            let command_buffer = wgpu_graphics::draw(&device, &surface_view, |g| {
-                clear(colors[i], g);
-            });
+            let command_buffer =
+                wgpu_graphics::draw(&device, &surface_config, &surface_view, |g| {
+                    clear(colors[i], g);
+
+                    rectangle(
+                        colors[(i + 1) % colors.len()],
+                        [-0.5, -0.5, 1.0, 1.0],
+                        [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+                        g,
+                    );
+                });
             queue.submit(std::iter::once(command_buffer));
         });
         event.button(|button_args| {

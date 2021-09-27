@@ -1,4 +1,33 @@
 use graphics::{types::Color, DrawState, Graphics, ImageSize};
+use wgpu::util::DeviceExt;
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+struct VertexInput {
+    position: [f32; 2],
+    color: [f32; 4],
+}
+
+impl VertexInput {
+    fn desc<'a>() -> wgpu::VertexBufferLayout<'a> {
+        wgpu::VertexBufferLayout {
+            array_stride: std::mem::size_of::<VertexInput>() as wgpu::BufferAddress,
+            step_mode: wgpu::VertexStepMode::Vertex,
+            attributes: &[
+                wgpu::VertexAttribute {
+                    offset: 0,
+                    shader_location: 0,
+                    format: wgpu::VertexFormat::Float32x2,
+                },
+                wgpu::VertexAttribute {
+                    offset: std::mem::size_of::<[f32; 2]>() as wgpu::BufferAddress,
+                    shader_location: 1,
+                    format: wgpu::VertexFormat::Float32x4,
+                },
+            ],
+        }
+    }
+}
 
 pub struct Texture {}
 
@@ -9,12 +38,60 @@ impl ImageSize for Texture {
 }
 
 pub struct WgpuGraphics {
+    render_pipeline: wgpu::RenderPipeline,
     clear_color: Option<Color>,
+    vertices: Vec<VertexInput>,
 }
 
 impl WgpuGraphics {
-    pub fn new() -> Self {
-        Self { clear_color: None }
+    pub fn new(device: &wgpu::Device, config: &wgpu::SurfaceConfiguration) -> Self {
+        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("Pipeline Layout"),
+            bind_group_layouts: &[],
+            push_constant_ranges: &[],
+        });
+
+        let shader_module = device.create_shader_module(&wgpu::include_wgsl!("shader.wgsl"));
+
+        let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("Render Pipeline"),
+            layout: Some(&pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &shader_module,
+                entry_point: "main",
+                buffers: &[VertexInput::desc()],
+            },
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                strip_index_format: None,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: Some(wgpu::Face::Back),
+                clamp_depth: false,
+                polygon_mode: wgpu::PolygonMode::Fill,
+                conservative: false,
+            },
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState {
+                count: 1,
+                mask: !0,
+                alpha_to_coverage_enabled: false,
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader_module,
+                entry_point: "main",
+                targets: &[wgpu::ColorTargetState {
+                    format: config.format,
+                    blend: Some(wgpu::BlendState::REPLACE),
+                    write_mask: wgpu::ColorWrites::ALL,
+                }],
+            }),
+        });
+
+        Self {
+            render_pipeline,
+            clear_color: None,
+            vertices: vec![],
+        }
     }
 
     pub fn draw(
@@ -28,7 +105,12 @@ impl WgpuGraphics {
         };
 
         encode(device, |encoder| {
-            let _render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Vertex Buffer"),
+                contents: bytemuck::cast_slice(&self.vertices),
+                usage: wgpu::BufferUsages::VERTEX,
+            });
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Render Pass"),
                 color_attachments: &[wgpu::RenderPassColorAttachment {
                     view: output_view,
@@ -37,6 +119,10 @@ impl WgpuGraphics {
                 }],
                 depth_stencil_attachment: None,
             });
+
+            render_pass.set_pipeline(&self.render_pipeline);
+            render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
+            render_pass.draw(0..self.vertices.len() as u32, 0..1);
         })
     }
 }
@@ -50,11 +136,15 @@ impl Graphics for WgpuGraphics {
 
     fn clear_stencil(&mut self, value: u8) {}
 
-    fn tri_list<F>(&mut self, draw_state: &DrawState, color: &[f32; 4], f: F)
+    fn tri_list<F>(&mut self, draw_state: &DrawState, &color: &[f32; 4], mut f: F)
     where
         F: FnMut(&mut dyn FnMut(&[[f32; 2]])),
     {
-        todo!()
+        f(&mut |positions| {
+            for &position in positions {
+                self.vertices.push(VertexInput { position, color });
+            }
+        });
     }
 
     fn tri_list_c<F>(&mut self, draw_state: &DrawState, f: F)
@@ -79,11 +169,16 @@ impl Graphics for WgpuGraphics {
     }
 }
 
-pub fn draw<F>(device: &wgpu::Device, output_view: &wgpu::TextureView, f: F) -> wgpu::CommandBuffer
+pub fn draw<F>(
+    device: &wgpu::Device,
+    config: &wgpu::SurfaceConfiguration,
+    output_view: &wgpu::TextureView,
+    f: F,
+) -> wgpu::CommandBuffer
 where
     F: FnOnce(&mut WgpuGraphics),
 {
-    let mut g = WgpuGraphics::new();
+    let mut g = WgpuGraphics::new(device, config);
     f(&mut g);
     g.draw(device, output_view)
 }
