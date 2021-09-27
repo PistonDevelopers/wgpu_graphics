@@ -57,21 +57,26 @@ fn main() {
                 surface.configure(&device, &surface_config);
             },
         );
-        event.render(|_| {
+        event.render(|render_args| {
             let surface_texture = &surface.get_current_frame().unwrap().output.texture;
             let surface_view = surface_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-            let command_buffer =
-                wgpu_graphics::draw(&device, &surface_config, &surface_view, |g| {
+            let command_buffer = wgpu_graphics::draw(
+                &device,
+                &surface_config,
+                &surface_view,
+                render_args.viewport(),
+                |c, g| {
                     clear(colors[i], g);
 
                     rectangle(
                         colors[(i + 1) % colors.len()],
-                        [-0.5, -0.5, 1.0, 1.0],
-                        [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
+                        [0.0, 0.0, 100.0, 100.0],
+                        c.transform,
                         g,
                     );
-                });
+                },
+            );
             queue.submit(std::iter::once(command_buffer));
         });
         event.button(|button_args| {

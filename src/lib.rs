@@ -1,4 +1,4 @@
-use graphics::{types::Color, DrawState, Graphics, ImageSize};
+use graphics::{types::Color, Context, DrawState, Graphics, ImageSize, Viewport};
 use wgpu::util::DeviceExt;
 
 #[repr(C)]
@@ -65,7 +65,7 @@ impl WgpuGraphics {
                 topology: wgpu::PrimitiveTopology::TriangleList,
                 strip_index_format: None,
                 front_face: wgpu::FrontFace::Ccw,
-                cull_mode: Some(wgpu::Face::Back),
+                cull_mode: None,
                 clamp_depth: false,
                 polygon_mode: wgpu::PolygonMode::Fill,
                 conservative: false,
@@ -173,13 +173,15 @@ pub fn draw<F>(
     device: &wgpu::Device,
     config: &wgpu::SurfaceConfiguration,
     output_view: &wgpu::TextureView,
+    viewport: Viewport,
     f: F,
 ) -> wgpu::CommandBuffer
 where
-    F: FnOnce(&mut WgpuGraphics),
+    F: FnOnce(Context, &mut WgpuGraphics),
 {
     let mut g = WgpuGraphics::new(device, config);
-    f(&mut g);
+    let c = Context::new_viewport(viewport);
+    f(c, &mut g);
     g.draw(device, output_view)
 }
 
