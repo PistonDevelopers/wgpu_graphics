@@ -2,11 +2,15 @@
 name = "wgpu_graphics"
 version = "0.0.0"
 edition = "2018"
+resolver = "2"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dev-dependencies]
+futures = "0.3"
+piston = "0.53"
 pistoncore-winit_window = { git = "https://github.com/shinmili/winit_window", branch = "feature/winit-0.25" }
 
 [dependencies]
 piston2d-graphics = "0.40.0"
+wgpu = "0.10"
