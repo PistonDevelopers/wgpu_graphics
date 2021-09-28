@@ -1,4 +1,6 @@
-use graphics::{types::Color, Context, DrawState, Graphics, ImageSize, Viewport};
+use graphics::{
+    draw_state::Blend, types::Color, Context, DrawState, Graphics, ImageSize, Viewport,
+};
 use wgpu::util::DeviceExt;
 
 #[repr(C)]
@@ -29,6 +31,93 @@ impl VertexInput {
     }
 }
 
+struct PsoBlend<T> {
+    none: T,
+    alpha: T,
+    add: T,
+    lighter: T,
+    multiply: T,
+    invert: T,
+}
+
+impl<T> PsoBlend<T> {
+    fn new<F>(mut f: F) -> Self
+    where
+        F: FnMut(Option<wgpu::BlendState>) -> T,
+    {
+        let none = f(None);
+        let alpha = f(Some(wgpu::BlendState::ALPHA_BLENDING));
+        let add = f(Some(wgpu::BlendState {
+            color: wgpu::BlendComponent {
+                src_factor: wgpu::BlendFactor::One,
+                dst_factor: wgpu::BlendFactor::One,
+                operation: wgpu::BlendOperation::Add,
+            },
+            alpha: wgpu::BlendComponent {
+                src_factor: wgpu::BlendFactor::One,
+                dst_factor: wgpu::BlendFactor::One,
+                operation: wgpu::BlendOperation::Add,
+            },
+        }));
+        let lighter = f(Some(wgpu::BlendState {
+            color: wgpu::BlendComponent {
+                src_factor: wgpu::BlendFactor::SrcAlpha,
+                dst_factor: wgpu::BlendFactor::One,
+                operation: wgpu::BlendOperation::Add,
+            },
+            alpha: wgpu::BlendComponent {
+                src_factor: wgpu::BlendFactor::Zero,
+                dst_factor: wgpu::BlendFactor::One,
+                operation: wgpu::BlendOperation::Add,
+            },
+        }));
+        let multiply = f(Some(wgpu::BlendState {
+            color: wgpu::BlendComponent {
+                src_factor: wgpu::BlendFactor::Dst,
+                dst_factor: wgpu::BlendFactor::Zero,
+                operation: wgpu::BlendOperation::Add,
+            },
+            alpha: wgpu::BlendComponent {
+                src_factor: wgpu::BlendFactor::DstAlpha,
+                dst_factor: wgpu::BlendFactor::Zero,
+                operation: wgpu::BlendOperation::Add,
+            },
+        }));
+        let invert = f(Some(wgpu::BlendState {
+            color: wgpu::BlendComponent {
+                src_factor: wgpu::BlendFactor::Constant,
+                dst_factor: wgpu::BlendFactor::Src,
+                operation: wgpu::BlendOperation::Subtract,
+            },
+            alpha: wgpu::BlendComponent {
+                src_factor: wgpu::BlendFactor::Zero,
+                dst_factor: wgpu::BlendFactor::One,
+                operation: wgpu::BlendOperation::Add,
+            },
+        }));
+
+        Self {
+            alpha,
+            add,
+            multiply,
+            invert,
+            none,
+            lighter,
+        }
+    }
+
+    fn blend(&self, blend: Option<Blend>) -> &T {
+        match blend {
+            None => &self.none,
+            Some(Blend::Alpha) => &self.alpha,
+            Some(Blend::Add) => &self.add,
+            Some(Blend::Lighter) => &self.lighter,
+            Some(Blend::Multiply) => &self.multiply,
+            Some(Blend::Invert) => &self.invert,
+        }
+    }
+}
+
 pub struct Texture {}
 
 impl ImageSize for Texture {
@@ -37,13 +126,11 @@ impl ImageSize for Texture {
     }
 }
 
-pub struct WgpuGraphics {
-    render_pipeline: wgpu::RenderPipeline,
-    clear_color: Option<Color>,
-    vertices: Vec<VertexInput>,
+pub struct Wgpu2d {
+    render_pipelines: PsoBlend<wgpu::RenderPipeline>,
 }
 
-impl WgpuGraphics {
+impl Wgpu2d {
     pub fn new(device: &wgpu::Device, config: &wgpu::SurfaceConfiguration) -> Self {
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Pipeline Layout"),
@@ -53,42 +140,72 @@ impl WgpuGraphics {
 
         let shader_module = device.create_shader_module(&wgpu::include_wgsl!("shader.wgsl"));
 
-        let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("Render Pipeline"),
-            layout: Some(&pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &shader_module,
-                entry_point: "main",
-                buffers: &[VertexInput::desc()],
-            },
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                strip_index_format: None,
-                front_face: wgpu::FrontFace::Ccw,
-                cull_mode: None,
-                clamp_depth: false,
-                polygon_mode: wgpu::PolygonMode::Fill,
-                conservative: false,
-            },
-            depth_stencil: None,
-            multisample: wgpu::MultisampleState {
-                count: 1,
-                mask: !0,
-                alpha_to_coverage_enabled: false,
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &shader_module,
-                entry_point: "main",
-                targets: &[wgpu::ColorTargetState {
-                    format: config.format,
-                    blend: Some(wgpu::BlendState::REPLACE),
-                    write_mask: wgpu::ColorWrites::ALL,
-                }],
-            }),
+        let render_pipelines = PsoBlend::new(|blend| {
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("Render Pipeline"),
+                layout: Some(&pipeline_layout),
+                vertex: wgpu::VertexState {
+                    module: &shader_module,
+                    entry_point: "main",
+                    buffers: &[VertexInput::desc()],
+                },
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleList,
+                    strip_index_format: None,
+                    front_face: wgpu::FrontFace::Ccw,
+                    cull_mode: None,
+                    clamp_depth: false,
+                    polygon_mode: wgpu::PolygonMode::Fill,
+                    conservative: false,
+                },
+                depth_stencil: None,
+                multisample: wgpu::MultisampleState {
+                    count: 1,
+                    mask: !0,
+                    alpha_to_coverage_enabled: false,
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &shader_module,
+                    entry_point: "main",
+                    targets: &[wgpu::ColorTargetState {
+                        format: config.format,
+                        blend,
+                        write_mask: wgpu::ColorWrites::ALL,
+                    }],
+                }),
+            })
         });
 
+        Self { render_pipelines }
+    }
+
+    pub fn draw<F>(
+        &mut self,
+        device: &wgpu::Device,
+        output_view: &wgpu::TextureView,
+        viewport: Viewport,
+        f: F,
+    ) -> wgpu::CommandBuffer
+    where
+        F: FnOnce(Context, &mut WgpuGraphics),
+    {
+        let mut g = WgpuGraphics::new(self);
+        let c = Context::new_viewport(viewport);
+        f(c, &mut g);
+        g.draw(device, output_view)
+    }
+}
+
+pub struct WgpuGraphics<'a> {
+    wgpu2d: &'a Wgpu2d,
+    clear_color: Option<Color>,
+    vertices: Vec<(DrawState, Vec<VertexInput>)>,
+}
+
+impl<'a> WgpuGraphics<'a> {
+    pub fn new(wgpu2d: &'a Wgpu2d) -> Self {
         Self {
-            render_pipeline,
+            wgpu2d,
             clear_color: None,
             vertices: vec![],
         }
@@ -104,12 +221,20 @@ impl WgpuGraphics {
             None => wgpu::LoadOp::Load,
         };
 
+        let draw_states_vertex_buffers_and_counts = self
+            .vertices
+            .iter()
+            .map(|(draw_state, vertices)| {
+                let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("Vertex Buffer"),
+                    contents: bytemuck::cast_slice(&vertices),
+                    usage: wgpu::BufferUsages::VERTEX,
+                });
+                (draw_state, vertex_buffer, vertices.len())
+            })
+            .collect::<Vec<_>>();
+
         encode(device, |encoder| {
-            let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("Vertex Buffer"),
-                contents: bytemuck::cast_slice(&self.vertices),
-                usage: wgpu::BufferUsages::VERTEX,
-            });
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Render Pass"),
                 color_attachments: &[wgpu::RenderPassColorAttachment {
@@ -120,14 +245,18 @@ impl WgpuGraphics {
                 depth_stencil_attachment: None,
             });
 
-            render_pass.set_pipeline(&self.render_pipeline);
-            render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
-            render_pass.draw(0..self.vertices.len() as u32, 0..1);
+            render_pass.set_blend_constant(wgpu::Color::WHITE);
+
+            for (draw_state, vertex_buffer, count) in &draw_states_vertex_buffers_and_counts {
+                render_pass.set_pipeline(&self.wgpu2d.render_pipelines.blend(draw_state.blend));
+                render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
+                render_pass.draw(0..*count as u32, 0..1);
+            }
         })
     }
 }
 
-impl Graphics for WgpuGraphics {
+impl<'a> Graphics for WgpuGraphics<'a> {
     type Texture = Texture;
 
     fn clear_color(&mut self, color: Color) {
@@ -141,9 +270,16 @@ impl Graphics for WgpuGraphics {
     where
         F: FnMut(&mut dyn FnMut(&[[f32; 2]])),
     {
+        if self.vertices.last().map(|&(s, _)| s) != Some(*draw_state) {
+            self.vertices.push((*draw_state, vec![]))
+        };
         f(&mut |positions| {
             for &position in positions {
-                self.vertices.push(VertexInput { position, color });
+                self.vertices
+                    .last_mut()
+                    .unwrap()
+                    .1
+                    .push(VertexInput { position, color });
             }
         });
     }
@@ -152,9 +288,16 @@ impl Graphics for WgpuGraphics {
     where
         F: FnMut(&mut dyn FnMut(&[[f32; 2]], &[[f32; 4]])),
     {
+        if self.vertices.last().map(|&(s, _)| s) != Some(*draw_state) {
+            self.vertices.push((*draw_state, vec![]))
+        };
         f(&mut |positions, colors| {
             for (&position, &color) in positions.iter().zip(colors.iter()) {
-                self.vertices.push(VertexInput { position, color });
+                self.vertices
+                    .last_mut()
+                    .unwrap()
+                    .1
+                    .push(VertexInput { position, color });
             }
         });
     }
@@ -172,22 +315,6 @@ impl Graphics for WgpuGraphics {
     {
         todo!()
     }
-}
-
-pub fn draw<F>(
-    device: &wgpu::Device,
-    config: &wgpu::SurfaceConfiguration,
-    output_view: &wgpu::TextureView,
-    viewport: Viewport,
-    f: F,
-) -> wgpu::CommandBuffer
-where
-    F: FnOnce(Context, &mut WgpuGraphics),
-{
-    let mut g = WgpuGraphics::new(device, config);
-    let c = Context::new_viewport(viewport);
-    f(c, &mut g);
-    g.draw(device, output_view)
 }
 
 fn encode<F>(device: &wgpu::Device, f: F) -> wgpu::CommandBuffer

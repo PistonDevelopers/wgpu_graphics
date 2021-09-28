@@ -1,11 +1,14 @@
-use graphics::{clear, rectangle};
+use graphics::{clear, draw_state::Blend, Rectangle};
 use piston::{
-    ButtonEvent, ButtonState, EventSettings, Events, RenderEvent, ResizeArgs, ResizeEvent, Window,
+    Button, EventSettings, Events, Key, PressEvent, RenderEvent, ResizeArgs, ResizeEvent, Window,
     WindowSettings,
 };
 use winit_window::WinitWindow;
 
 fn main() {
+    println!("Press A to change blending");
+    println!("Press S to change clip inside/out");
+
     let mut window = WinitWindow::new(&WindowSettings::new("wgpu_graphics example", (640, 480)));
 
     let instance = wgpu::Instance::new(wgpu::Backends::all());
@@ -30,20 +33,19 @@ fn main() {
     };
     surface.configure(&device, &surface_config);
 
+    let blends = [
+        Blend::Alpha,
+        Blend::Add,
+        Blend::Invert,
+        Blend::Multiply,
+        Blend::Lighter,
+    ];
+    let mut blend = 0;
+    let mut clip_inside = true;
+
     let mut wgpu2d = wgpu_graphics::Wgpu2d::new(&device, &surface_config);
     let mut events = Events::new(EventSettings::new());
 
-    let colors = [
-        [0.0, 0.0, 0.0, 1.0],
-        [0.0, 0.0, 1.0, 1.0],
-        [0.0, 1.0, 0.0, 1.0],
-        [0.0, 1.0, 1.0, 1.0],
-        [1.0, 0.0, 0.0, 1.0],
-        [1.0, 0.0, 1.0, 1.0],
-        [1.0, 1.0, 0.0, 1.0],
-        [1.0, 1.0, 1.0, 1.0],
-    ];
-    let mut i = 0;
     while let Some(event) = events.next(&mut window) {
         event.resize(
             |&ResizeArgs {
@@ -64,21 +66,36 @@ fn main() {
 
             let command_buffer =
                 wgpu2d.draw(&device, &surface_view, render_args.viewport(), |c, g| {
-                    clear(colors[i], g);
-
-                    rectangle(
-                        colors[(i + 1) % colors.len()],
+                    clear([0.8, 0.8, 0.8, 1.0], g);
+                    Rectangle::new([1.0, 0.0, 0.0, 1.0]).draw(
                         [0.0, 0.0, 100.0, 100.0],
+                        &c.draw_state,
+                        c.transform,
+                        g,
+                    );
+
+                    let draw_state = c.draw_state.blend(blends[blend]);
+                    Rectangle::new([0.5, 1.0, 0.0, 0.3]).draw(
+                        [50.0, 50.0, 100.0, 100.0],
+                        &draw_state,
                         c.transform,
                         g,
                     );
                 });
             queue.submit(std::iter::once(command_buffer));
         });
-        event.button(|button_args| {
-            if button_args.state == ButtonState::Press {
-                i = (i + 1) % colors.len();
+
+        if let Some(Button::Keyboard(Key::A)) = event.press_args() {
+            blend = (blend + 1) % blends.len();
+            println!("Changed blending to {:?}", blends[blend]);
+        }
+        if let Some(Button::Keyboard(Key::S)) = event.press_args() {
+            clip_inside = !clip_inside;
+            if clip_inside {
+                println!("Changed to clip inside");
+            } else {
+                println!("Changed to clip outside");
             }
-        });
+        }
     }
 }
