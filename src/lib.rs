@@ -132,6 +132,7 @@ impl Graphics for WgpuGraphics {
 
     fn clear_color(&mut self, color: Color) {
         self.clear_color = Some(color);
+        self.vertices.clear();
     }
 
     fn clear_stencil(&mut self, value: u8) {}
