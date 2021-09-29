@@ -64,8 +64,12 @@ fn main() {
             let surface_texture = &surface.get_current_frame().unwrap().output.texture;
             let surface_view = surface_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-            let command_buffer =
-                wgpu2d.draw(&device, &surface_view, render_args.viewport(), |c, g| {
+            let command_buffer = wgpu2d.draw(
+                &device,
+                &surface_config,
+                &surface_view,
+                render_args.viewport(),
+                |c, g| {
                     clear([0.8, 0.8, 0.8, 1.0], g);
                     Rectangle::new([1.0, 0.0, 0.0, 1.0]).draw(
                         [0.0, 0.0, 100.0, 100.0],
@@ -81,7 +85,8 @@ fn main() {
                         c.transform,
                         g,
                     );
-                });
+                },
+            );
             queue.submit(std::iter::once(command_buffer));
         });
 

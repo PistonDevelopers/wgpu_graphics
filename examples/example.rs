@@ -62,8 +62,12 @@ fn main() {
             let surface_texture = &surface.get_current_frame().unwrap().output.texture;
             let surface_view = surface_texture.create_view(&wgpu::TextureViewDescriptor::default());
 
-            let command_buffer =
-                wgpu2d.draw(&device, &surface_view, render_args.viewport(), |c, g| {
+            let command_buffer = wgpu2d.draw(
+                &device,
+                &surface_config,
+                &surface_view,
+                render_args.viewport(),
+                |c, g| {
                     clear(colors[i], g);
 
                     rectangle(
@@ -72,7 +76,8 @@ fn main() {
                         c.transform,
                         g,
                     );
-                });
+                },
+            );
             queue.submit(std::iter::once(command_buffer));
         });
         event.button(|button_args| {

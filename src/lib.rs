@@ -126,12 +126,13 @@ impl ImageSize for Texture {
     }
 }
 
-pub struct Wgpu2d {
+pub struct Wgpu2d<'a> {
+    device: &'a wgpu::Device,
     render_pipelines: PsoBlend<wgpu::RenderPipeline>,
 }
 
-impl Wgpu2d {
-    pub fn new(device: &wgpu::Device, config: &wgpu::SurfaceConfiguration) -> Self {
+impl<'a> Wgpu2d<'a> {
+    pub fn new<'b>(device: &'a wgpu::Device, config: &'b wgpu::SurfaceConfiguration) -> Self {
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Pipeline Layout"),
             bind_group_layouts: &[],
@@ -176,12 +177,16 @@ impl Wgpu2d {
             })
         });
 
-        Self { render_pipelines }
+        Self {
+            device,
+            render_pipelines,
+        }
     }
 
     pub fn draw<F>(
         &mut self,
         device: &wgpu::Device,
+        config: &wgpu::SurfaceConfiguration,
         output_view: &wgpu::TextureView,
         viewport: Viewport,
         f: F,
@@ -189,7 +194,7 @@ impl Wgpu2d {
     where
         F: FnOnce(Context, &mut WgpuGraphics),
     {
-        let mut g = WgpuGraphics::new(self);
+        let mut g = WgpuGraphics::new(self, config);
         let c = Context::new_viewport(viewport);
         f(c, &mut g);
         g.draw(device, output_view)
@@ -197,17 +202,19 @@ impl Wgpu2d {
 }
 
 pub struct WgpuGraphics<'a> {
-    wgpu2d: &'a Wgpu2d,
+    wgpu2d: &'a Wgpu2d<'a>,
+    color_format: wgpu::TextureFormat,
     clear_color: Option<Color>,
-    vertices: Vec<(DrawState, Vec<VertexInput>)>,
+    render_bundles: Vec<wgpu::RenderBundle>,
 }
 
 impl<'a> WgpuGraphics<'a> {
-    pub fn new(wgpu2d: &'a Wgpu2d) -> Self {
+    pub fn new(wgpu2d: &'a Wgpu2d<'a>, config: &wgpu::SurfaceConfiguration) -> Self {
         Self {
             wgpu2d,
+            color_format: config.format,
             clear_color: None,
-            vertices: vec![],
+            render_bundles: vec![],
         }
     }
 
@@ -220,19 +227,6 @@ impl<'a> WgpuGraphics<'a> {
             Some(c) => wgpu::LoadOp::Clear(to_wgpu_color(c)),
             None => wgpu::LoadOp::Load,
         };
-
-        let draw_states_vertex_buffers_and_counts = self
-            .vertices
-            .iter()
-            .map(|(draw_state, vertices)| {
-                let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("Vertex Buffer"),
-                    contents: bytemuck::cast_slice(&vertices),
-                    usage: wgpu::BufferUsages::VERTEX,
-                });
-                (draw_state, vertex_buffer, vertices.len())
-            })
-            .collect::<Vec<_>>();
 
         encode(device, |encoder| {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -247,12 +241,46 @@ impl<'a> WgpuGraphics<'a> {
 
             render_pass.set_blend_constant(wgpu::Color::WHITE);
 
-            for (draw_state, vertex_buffer, count) in &draw_states_vertex_buffers_and_counts {
-                render_pass.set_pipeline(&self.wgpu2d.render_pipelines.blend(draw_state.blend));
-                render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
-                render_pass.draw(0..*count as u32, 0..1);
-            }
+            render_pass.execute_bundles(self.render_bundles.iter());
         })
+    }
+
+    fn bundle<'b, F>(&self, device: &'b wgpu::Device, f: F) -> wgpu::RenderBundle
+    where
+        F: FnOnce(&mut dyn wgpu::util::RenderEncoder<'b>),
+    {
+        let mut render_bundle_encoder =
+            device.create_render_bundle_encoder(&wgpu::RenderBundleEncoderDescriptor {
+                label: Some("Render Bundle Encoder"),
+                color_formats: &[self.color_format],
+                depth_stencil: None,
+                sample_count: 1,
+            });
+
+        f(&mut render_bundle_encoder);
+
+        render_bundle_encoder.finish(&wgpu::RenderBundleDescriptor {
+            label: Some("Render Bundle"),
+        })
+    }
+
+    fn bundle_colored(&mut self, vertex_inputs: &[VertexInput], draw_state: &DrawState) {
+        let vertex_buffer =
+            self.wgpu2d
+                .device
+                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("Vertex Buffer"),
+                    contents: bytemuck::cast_slice(&vertex_inputs),
+                    usage: wgpu::BufferUsages::VERTEX,
+                });
+
+        let render_bundle = self.bundle(self.wgpu2d.device, |render_encoder| {
+            render_encoder.set_pipeline(&self.wgpu2d.render_pipelines.blend(draw_state.blend));
+            render_encoder.set_vertex_buffer(0, vertex_buffer.slice(..));
+            render_encoder.draw(0..vertex_inputs.len() as u32, 0..1);
+        });
+
+        self.render_bundles.push(render_bundle);
     }
 }
 
@@ -261,7 +289,7 @@ impl<'a> Graphics for WgpuGraphics<'a> {
 
     fn clear_color(&mut self, color: Color) {
         self.clear_color = Some(color);
-        self.vertices.clear();
+        self.render_bundles.clear();
     }
 
     fn clear_stencil(&mut self, value: u8) {}
@@ -270,17 +298,13 @@ impl<'a> Graphics for WgpuGraphics<'a> {
     where
         F: FnMut(&mut dyn FnMut(&[[f32; 2]])),
     {
-        if self.vertices.last().map(|&(s, _)| s) != Some(*draw_state) {
-            self.vertices.push((*draw_state, vec![]))
-        };
         f(&mut |positions| {
-            for &position in positions {
-                self.vertices
-                    .last_mut()
-                    .unwrap()
-                    .1
-                    .push(VertexInput { position, color });
-            }
+            let pipeline_inputs = positions
+                .iter()
+                .map(|&position| VertexInput { position, color })
+                .collect::<Vec<_>>();
+
+            self.bundle_colored(&pipeline_inputs, draw_state);
         });
     }
 
@@ -288,17 +312,14 @@ impl<'a> Graphics for WgpuGraphics<'a> {
     where
         F: FnMut(&mut dyn FnMut(&[[f32; 2]], &[[f32; 4]])),
     {
-        if self.vertices.last().map(|&(s, _)| s) != Some(*draw_state) {
-            self.vertices.push((*draw_state, vec![]))
-        };
         f(&mut |positions, colors| {
-            for (&position, &color) in positions.iter().zip(colors.iter()) {
-                self.vertices
-                    .last_mut()
-                    .unwrap()
-                    .1
-                    .push(VertexInput { position, color });
-            }
+            let pipeline_inputs = positions
+                .iter()
+                .zip(colors.iter())
+                .map(|(&position, &color)| VertexInput { position, color })
+                .collect::<Vec<_>>();
+
+            self.bundle_colored(&pipeline_inputs, draw_state);
         });
     }
 
