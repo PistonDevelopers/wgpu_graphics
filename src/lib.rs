@@ -1,20 +1,20 @@
 use graphics::{
     draw_state::Blend, types::Color, Context, DrawState, Graphics, ImageSize, Viewport,
 };
-use texture::{CreateTexture, Format, TextureOp, TextureSettings, UpdateTexture};
+use texture::{CreateTexture, Format, TextureOp, TextureSettings};
 use wgpu::util::DeviceExt;
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
-struct VertexInput {
+struct ColoredPipelineInput {
     position: [f32; 2],
     color: [f32; 4],
 }
 
-impl VertexInput {
+impl ColoredPipelineInput {
     fn desc<'a>() -> wgpu::VertexBufferLayout<'a> {
         wgpu::VertexBufferLayout {
-            array_stride: std::mem::size_of::<VertexInput>() as wgpu::BufferAddress,
+            array_stride: std::mem::size_of::<ColoredPipelineInput>() as wgpu::BufferAddress,
             step_mode: wgpu::VertexStepMode::Vertex,
             attributes: &[
                 wgpu::VertexAttribute {
@@ -26,6 +26,34 @@ impl VertexInput {
                     offset: std::mem::size_of::<[f32; 2]>() as wgpu::BufferAddress,
                     shader_location: 1,
                     format: wgpu::VertexFormat::Float32x4,
+                },
+            ],
+        }
+    }
+}
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+struct TexturedPipelineInput {
+    xy: [f32; 2],
+    uv: [f32; 2],
+}
+
+impl TexturedPipelineInput {
+    fn desc<'a>() -> wgpu::VertexBufferLayout<'a> {
+        wgpu::VertexBufferLayout {
+            array_stride: std::mem::size_of::<TexturedPipelineInput>() as wgpu::BufferAddress,
+            step_mode: wgpu::VertexStepMode::Vertex,
+            attributes: &[
+                wgpu::VertexAttribute {
+                    offset: 0,
+                    shader_location: 0,
+                    format: wgpu::VertexFormat::Float32x2,
+                },
+                wgpu::VertexAttribute {
+                    offset: std::mem::size_of::<[f32; 2]>() as wgpu::BufferAddress,
+                    shader_location: 1,
+                    format: wgpu::VertexFormat::Float32x2,
                 },
             ],
         }
@@ -269,7 +297,7 @@ impl<'a> Wgpu2d<'a> {
                 vertex: wgpu::VertexState {
                     module: &shader_module,
                     entry_point: "main",
-                    buffers: &[VertexInput::desc()],
+                    buffers: &[ColoredPipelineInput::desc()],
                 },
                 primitive: wgpu::PrimitiveState {
                     topology: wgpu::PrimitiveTopology::TriangleList,
@@ -385,20 +413,20 @@ impl<'a> WgpuGraphics<'a> {
         })
     }
 
-    fn bundle_colored(&mut self, vertex_inputs: &[VertexInput], draw_state: &DrawState) {
+    fn bundle_colored(&mut self, colored_inputs: &[ColoredPipelineInput], draw_state: &DrawState) {
         let vertex_buffer =
             self.wgpu2d
                 .device
                 .create_buffer_init(&wgpu::util::BufferInitDescriptor {
                     label: Some("Vertex Buffer"),
-                    contents: bytemuck::cast_slice(&vertex_inputs),
+                    contents: bytemuck::cast_slice(&colored_inputs),
                     usage: wgpu::BufferUsages::VERTEX,
                 });
 
         let render_bundle = self.bundle(self.wgpu2d.device, |render_encoder| {
             render_encoder.set_pipeline(&self.wgpu2d.render_pipelines.blend(draw_state.blend));
             render_encoder.set_vertex_buffer(0, vertex_buffer.slice(..));
-            render_encoder.draw(0..vertex_inputs.len() as u32, 0..1);
+            render_encoder.draw(0..colored_inputs.len() as u32, 0..1);
         });
 
         self.render_bundles.push(render_bundle);
@@ -422,7 +450,7 @@ impl<'a> Graphics for WgpuGraphics<'a> {
         f(&mut |positions| {
             let pipeline_inputs = positions
                 .iter()
-                .map(|&position| VertexInput { position, color })
+                .map(|&position| ColoredPipelineInput { position, color })
                 .collect::<Vec<_>>();
 
             self.bundle_colored(&pipeline_inputs, draw_state);
@@ -437,18 +465,31 @@ impl<'a> Graphics for WgpuGraphics<'a> {
             let pipeline_inputs = positions
                 .iter()
                 .zip(colors.iter())
-                .map(|(&position, &color)| VertexInput { position, color })
+                .map(|(&position, &color)| ColoredPipelineInput { position, color })
                 .collect::<Vec<_>>();
 
             self.bundle_colored(&pipeline_inputs, draw_state);
         });
     }
 
-    fn tri_list_uv<F>(&mut self, draw_state: &DrawState, color: &[f32; 4], texture: &Texture, f: F)
-    where
+    fn tri_list_uv<F>(
+        &mut self,
+        draw_state: &DrawState,
+        color: &[f32; 4],
+        texture: &Texture,
+        mut f: F,
+    ) where
         F: FnMut(&mut dyn FnMut(&[[f32; 2]], &[[f32; 2]])),
     {
-        todo!()
+        f(&mut |xys, uvs| {
+            let pipeline_inputs = xys
+                .iter()
+                .zip(uvs.iter())
+                .map(|(&xy, &uv)| TexturedPipelineInput { xy, uv })
+                .collect::<Vec<_>>();
+
+            todo!()
+        })
     }
 
     fn tri_list_uv_c<F>(&mut self, draw_state: &DrawState, texture: &Texture, f: F)
