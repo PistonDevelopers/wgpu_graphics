@@ -1,6 +1,10 @@
 use graphics::{
     draw_state::Blend, types::Color, Context, DrawState, Graphics, ImageSize, Viewport,
 };
+use std::{
+    fmt::{self, Display, Formatter},
+    path::Path,
+};
 use texture::{CreateTexture, Format, TextureOp, TextureSettings};
 use wgpu::util::DeviceExt;
 
@@ -163,7 +167,44 @@ pub struct Texture {
     height: u32,
 }
 
+pub struct TextureContext<'a> {
+    device: &'a wgpu::Device,
+    queue: &'a wgpu::Queue,
+}
+
+impl<'a> TextureContext<'a> {
+    pub fn from_parts(device: &'a wgpu::Device, queue: &'a wgpu::Queue) -> Self {
+        TextureContext { device, queue }
+    }
+}
+
 impl Texture {
+    pub fn from_path<'a, P>(
+        context: &mut TextureContext<'a>,
+        path: P,
+        settings: &TextureSettings,
+    ) -> Result<Self, TextureError>
+    where
+        P: AsRef<Path>,
+    {
+        let img = image::open(path).map_err(TextureError::ImageError)?;
+        let img = match img {
+            image::DynamicImage::ImageRgba8(img) => img,
+            img => img.to_rgba8(),
+        };
+
+        Texture::from_image(context, &img, settings)
+    }
+
+    pub fn from_image<'a>(
+        context: &mut TextureContext<'a>,
+        img: &image::RgbaImage,
+        settings: &TextureSettings,
+    ) -> Result<Self, TextureError> {
+        let (width, height) = img.dimensions();
+        CreateTexture::create(context, Format::Rgba8, img, [width, height], settings)
+    }
+
     fn create_bind_group_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
         device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("Texture Bind Group Layout"),
@@ -192,20 +233,31 @@ impl Texture {
     }
 }
 
-impl TextureOp<(wgpu::Device, wgpu::Queue)> for Texture {
-    type Error = Error;
+impl<'a> TextureOp<TextureContext<'a>> for Texture {
+    type Error = TextureError;
 }
 
-pub struct Error {}
+#[derive(Debug)]
+pub enum TextureError {
+    ImageError(image::error::ImageError),
+}
 
-impl CreateTexture<(wgpu::Device, wgpu::Queue)> for Texture {
+impl Display for TextureError {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        match self {
+            TextureError::ImageError(e) => write!(f, "Error loading image: {}", e),
+        }
+    }
+}
+
+impl<'a> CreateTexture<TextureContext<'a>> for Texture {
     fn create<S: Into<[u32; 2]>>(
-        (device, queue): &mut (wgpu::Device, wgpu::Queue),
+        TextureContext { device, queue }: &mut TextureContext<'a>,
         _format: Format,
         memory: &[u8],
         size: S,
         _settings: &TextureSettings, // TODO: Don't ignore settings
-    ) -> Result<Self, Self::Error> {
+    ) -> Result<Self, TextureError> {
         let [width, height] = size.into();
         let texture_size = wgpu::Extent3d {
             width,

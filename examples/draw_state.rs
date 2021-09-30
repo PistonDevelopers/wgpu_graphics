@@ -1,8 +1,10 @@
-use graphics::{clear, draw_state::Blend, Rectangle};
+use graphics::{clear, draw_state::Blend, DrawState, Ellipse, Image, Rectangle, Transformed};
 use piston::{
     Button, EventSettings, Events, Key, PressEvent, RenderEvent, ResizeArgs, ResizeEvent, Window,
     WindowSettings,
 };
+use texture::TextureSettings;
+use wgpu_graphics::{Texture, TextureContext};
 use winit_window::WinitWindow;
 
 fn main() {
@@ -33,6 +35,9 @@ fn main() {
     };
     surface.configure(&device, &surface_config);
 
+    let assets = find_folder::Search::ParentsThenKids(3, 3)
+        .for_folder("assets")
+        .unwrap();
     let blends = [
         Blend::Alpha,
         Blend::Add,
@@ -42,6 +47,13 @@ fn main() {
     ];
     let mut blend = 0;
     let mut clip_inside = true;
+    let mut texture_context = TextureContext::from_parts(&device, &queue);
+    let rust_logo = Texture::from_path(
+        &mut texture_context,
+        assets.join("rust.png"),
+        &TextureSettings::new(),
+    )
+    .unwrap();
 
     let mut wgpu2d = wgpu_graphics::Wgpu2d::new(&device, &surface_config);
     let mut events = Events::new(EventSettings::new());
@@ -83,6 +95,28 @@ fn main() {
                         [50.0, 50.0, 100.0, 100.0],
                         &draw_state,
                         c.transform,
+                        g,
+                    );
+
+                    let transform = c.transform.trans(100.0, 100.0);
+                    let clipped = c.draw_state.scissor([100, 100, 100, 100]);
+                    Image::new().draw(&rust_logo, &clipped, transform, g);
+
+                    let transform = c.transform.trans(200.0, 200.0);
+                    Ellipse::new([1.0, 0.0, 0.0, 1.0]).draw(
+                        [0.0, 0.0, 50.0, 50.0],
+                        &DrawState::new_clip(),
+                        transform,
+                        g,
+                    );
+                    Image::new().draw(
+                        &rust_logo,
+                        &if clip_inside {
+                            DrawState::new_inside()
+                        } else {
+                            DrawState::new_outside()
+                        },
+                        transform,
                         g,
                     );
                 },
