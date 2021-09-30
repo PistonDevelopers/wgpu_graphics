@@ -13,5 +13,6 @@ pistoncore-winit_window = { git = "https://github.com/shinmili/winit_window", br
 
 [dependencies]
 bytemuck = { version = "1.7", features = ["derive"] }
+piston-texture = "0.8.0"
 piston2d-graphics = "0.40.0"
 wgpu = "0.10"

@@ -1,6 +1,7 @@
 use graphics::{
     draw_state::Blend, types::Color, Context, DrawState, Graphics, ImageSize, Viewport,
 };
+use texture::{CreateTexture, Format, TextureOp, TextureSettings, UpdateTexture};
 use wgpu::util::DeviceExt;
 
 #[repr(C)]
@@ -45,54 +46,56 @@ impl<T> PsoBlend<T> {
     where
         F: FnMut(Option<wgpu::BlendState>) -> T,
     {
+        use wgpu::{BlendComponent, BlendFactor::*, BlendOperation::*, BlendState};
+
         let none = f(None);
-        let alpha = f(Some(wgpu::BlendState::ALPHA_BLENDING));
-        let add = f(Some(wgpu::BlendState {
-            color: wgpu::BlendComponent {
-                src_factor: wgpu::BlendFactor::One,
-                dst_factor: wgpu::BlendFactor::One,
-                operation: wgpu::BlendOperation::Add,
+        let alpha = f(Some(BlendState::ALPHA_BLENDING));
+        let add = f(Some(BlendState {
+            color: BlendComponent {
+                src_factor: One,
+                dst_factor: One,
+                operation: Add,
             },
-            alpha: wgpu::BlendComponent {
-                src_factor: wgpu::BlendFactor::One,
-                dst_factor: wgpu::BlendFactor::One,
-                operation: wgpu::BlendOperation::Add,
-            },
-        }));
-        let lighter = f(Some(wgpu::BlendState {
-            color: wgpu::BlendComponent {
-                src_factor: wgpu::BlendFactor::SrcAlpha,
-                dst_factor: wgpu::BlendFactor::One,
-                operation: wgpu::BlendOperation::Add,
-            },
-            alpha: wgpu::BlendComponent {
-                src_factor: wgpu::BlendFactor::Zero,
-                dst_factor: wgpu::BlendFactor::One,
-                operation: wgpu::BlendOperation::Add,
+            alpha: BlendComponent {
+                src_factor: One,
+                dst_factor: One,
+                operation: Add,
             },
         }));
-        let multiply = f(Some(wgpu::BlendState {
-            color: wgpu::BlendComponent {
-                src_factor: wgpu::BlendFactor::Dst,
-                dst_factor: wgpu::BlendFactor::Zero,
-                operation: wgpu::BlendOperation::Add,
+        let lighter = f(Some(BlendState {
+            color: BlendComponent {
+                src_factor: SrcAlpha,
+                dst_factor: One,
+                operation: Add,
             },
-            alpha: wgpu::BlendComponent {
-                src_factor: wgpu::BlendFactor::DstAlpha,
-                dst_factor: wgpu::BlendFactor::Zero,
-                operation: wgpu::BlendOperation::Add,
+            alpha: BlendComponent {
+                src_factor: Zero,
+                dst_factor: One,
+                operation: Add,
             },
         }));
-        let invert = f(Some(wgpu::BlendState {
-            color: wgpu::BlendComponent {
-                src_factor: wgpu::BlendFactor::Constant,
-                dst_factor: wgpu::BlendFactor::Src,
-                operation: wgpu::BlendOperation::Subtract,
+        let multiply = f(Some(BlendState {
+            color: BlendComponent {
+                src_factor: Dst,
+                dst_factor: Zero,
+                operation: Add,
             },
-            alpha: wgpu::BlendComponent {
-                src_factor: wgpu::BlendFactor::Zero,
-                dst_factor: wgpu::BlendFactor::One,
-                operation: wgpu::BlendOperation::Add,
+            alpha: BlendComponent {
+                src_factor: DstAlpha,
+                dst_factor: Zero,
+                operation: Add,
+            },
+        }));
+        let invert = f(Some(BlendState {
+            color: BlendComponent {
+                src_factor: Constant,
+                dst_factor: Src,
+                operation: Subtract,
+            },
+            alpha: BlendComponent {
+                src_factor: Zero,
+                dst_factor: One,
+                operation: Add,
             },
         }));
 
@@ -118,11 +121,129 @@ impl<T> PsoBlend<T> {
     }
 }
 
-pub struct Texture {}
+pub struct Texture {
+    texture: wgpu::Texture,
+    sampler: wgpu::Sampler,
+    bind_group: wgpu::BindGroup,
+    width: u32,
+    height: u32,
+}
+
+impl TextureOp<(wgpu::Device, wgpu::Queue)> for Texture {
+    type Error = Error;
+}
+
+pub struct Error {}
+
+impl CreateTexture<(wgpu::Device, wgpu::Queue)> for Texture {
+    fn create<S: Into<[u32; 2]>>(
+        (device, queue): &mut (wgpu::Device, wgpu::Queue),
+        _format: Format,
+        memory: &[u8],
+        size: S,
+        _settings: &TextureSettings, // TODO: Don't ignore settings
+    ) -> Result<Self, Self::Error> {
+        let [width, height] = size.into();
+        let texture_size = wgpu::Extent3d {
+            width,
+            height,
+            depth_or_array_layers: 1,
+        };
+
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Diffuse Texture"),
+            size: texture_size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+        });
+
+        queue.write_texture(
+            wgpu::ImageCopyTexture {
+                texture: &texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            memory,
+            wgpu::ImageDataLayout {
+                offset: 0,
+                bytes_per_row: std::num::NonZeroU32::new(4 * width),
+                rows_per_image: std::num::NonZeroU32::new(height),
+            },
+            texture_size,
+        );
+
+        let texture_view = texture.create_view(&wgpu::TextureViewDescriptor {
+            label: Some("Texture View"),
+            ..Default::default()
+        });
+
+        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Nearest,
+            mipmap_filter: wgpu::FilterMode::Nearest,
+            ..Default::default()
+        });
+
+        let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("Texture Bind Group Layout"),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        multisampled: false,
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler {
+                        filtering: false,
+                        comparison: true,
+                    },
+                    count: None,
+                },
+            ],
+        });
+
+        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Texture Bind Group"),
+            layout: &bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&texture_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&sampler),
+                },
+            ],
+        });
+
+        Ok(Self {
+            texture,
+            sampler,
+            bind_group,
+            width,
+            height,
+        })
+    }
+}
 
 impl ImageSize for Texture {
     fn get_size(&self) -> (u32, u32) {
-        todo!()
+        (self.width, self.height)
     }
 }
 
