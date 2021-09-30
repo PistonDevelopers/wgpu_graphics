@@ -37,6 +37,7 @@ impl ColoredPipelineInput {
 struct TexturedPipelineInput {
     xy: [f32; 2],
     uv: [f32; 2],
+    color: [f32; 4],
 }
 
 impl TexturedPipelineInput {
@@ -54,6 +55,11 @@ impl TexturedPipelineInput {
                     offset: std::mem::size_of::<[f32; 2]>() as wgpu::BufferAddress,
                     shader_location: 1,
                     format: wgpu::VertexFormat::Float32x2,
+                },
+                wgpu::VertexAttribute {
+                    offset: std::mem::size_of::<[f32; 4]>() as wgpu::BufferAddress,
+                    shader_location: 2,
+                    format: wgpu::VertexFormat::Float32x4,
                 },
             ],
         }
@@ -157,6 +163,35 @@ pub struct Texture {
     height: u32,
 }
 
+impl Texture {
+    fn create_bind_group_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
+        device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("Texture Bind Group Layout"),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        multisampled: false,
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler {
+                        filtering: true,
+                        comparison: false,
+                    },
+                    count: None,
+                },
+            ],
+        })
+    }
+}
+
 impl TextureOp<(wgpu::Device, wgpu::Queue)> for Texture {
     type Error = Error;
 }
@@ -219,30 +254,7 @@ impl CreateTexture<(wgpu::Device, wgpu::Queue)> for Texture {
             ..Default::default()
         });
 
-        let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("Texture Bind Group Layout"),
-            entries: &[
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture {
-                        multisampled: false,
-                        view_dimension: wgpu::TextureViewDimension::D2,
-                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                    },
-                    count: None,
-                },
-                wgpu::BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Sampler {
-                        filtering: false,
-                        comparison: true,
-                    },
-                    count: None,
-                },
-            ],
-        });
+        let bind_group_layout = Texture::create_bind_group_layout(device);
 
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Texture Bind Group"),
@@ -277,25 +289,28 @@ impl ImageSize for Texture {
 
 pub struct Wgpu2d<'a> {
     device: &'a wgpu::Device,
-    render_pipelines: PsoBlend<wgpu::RenderPipeline>,
+    colored_render_pipelines: PsoBlend<wgpu::RenderPipeline>,
+    textured_render_pipelines: PsoBlend<wgpu::RenderPipeline>,
 }
 
 impl<'a> Wgpu2d<'a> {
     pub fn new<'b>(device: &'a wgpu::Device, config: &'b wgpu::SurfaceConfiguration) -> Self {
-        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("Pipeline Layout"),
-            bind_group_layouts: &[],
-            push_constant_ranges: &[],
-        });
+        let colored_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Colored Pipeline Layout"),
+                bind_group_layouts: &[],
+                push_constant_ranges: &[],
+            });
 
-        let shader_module = device.create_shader_module(&wgpu::include_wgsl!("shader.wgsl"));
+        let colored_shader_module =
+            device.create_shader_module(&wgpu::include_wgsl!("colored.wgsl"));
 
-        let render_pipelines = PsoBlend::new(|blend| {
+        let colored_render_pipelines = PsoBlend::new(|blend| {
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                label: Some("Render Pipeline"),
-                layout: Some(&pipeline_layout),
+                label: Some("Colored Render Pipeline"),
+                layout: Some(&colored_pipeline_layout),
                 vertex: wgpu::VertexState {
-                    module: &shader_module,
+                    module: &colored_shader_module,
                     entry_point: "main",
                     buffers: &[ColoredPipelineInput::desc()],
                 },
@@ -315,7 +330,55 @@ impl<'a> Wgpu2d<'a> {
                     alpha_to_coverage_enabled: false,
                 },
                 fragment: Some(wgpu::FragmentState {
-                    module: &shader_module,
+                    module: &colored_shader_module,
+                    entry_point: "main",
+                    targets: &[wgpu::ColorTargetState {
+                        format: config.format,
+                        blend,
+                        write_mask: wgpu::ColorWrites::ALL,
+                    }],
+                }),
+            })
+        });
+
+        let textured_bind_group_layout = Texture::create_bind_group_layout(device);
+
+        let textured_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Textured Pipeline Layout"),
+                bind_group_layouts: &[&textured_bind_group_layout],
+                push_constant_ranges: &[],
+            });
+
+        let textured_shader_module =
+            device.create_shader_module(&wgpu::include_wgsl!("textured.wgsl"));
+
+        let textured_render_pipelines = PsoBlend::new(|blend| {
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("Textured Render Pipeline"),
+                layout: Some(&textured_pipeline_layout),
+                vertex: wgpu::VertexState {
+                    module: &textured_shader_module,
+                    entry_point: "main",
+                    buffers: &[TexturedPipelineInput::desc()],
+                },
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleList,
+                    strip_index_format: None,
+                    front_face: wgpu::FrontFace::Ccw,
+                    cull_mode: None,
+                    clamp_depth: false,
+                    polygon_mode: wgpu::PolygonMode::Fill,
+                    conservative: false,
+                },
+                depth_stencil: None,
+                multisample: wgpu::MultisampleState {
+                    count: 1,
+                    mask: !0,
+                    alpha_to_coverage_enabled: false,
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &textured_shader_module,
                     entry_point: "main",
                     targets: &[wgpu::ColorTargetState {
                         format: config.format,
@@ -328,7 +391,8 @@ impl<'a> Wgpu2d<'a> {
 
         Self {
             device,
-            render_pipelines,
+            colored_render_pipelines,
+            textured_render_pipelines,
         }
     }
 
@@ -424,9 +488,40 @@ impl<'a> WgpuGraphics<'a> {
                 });
 
         let render_bundle = self.bundle(self.wgpu2d.device, |render_encoder| {
-            render_encoder.set_pipeline(&self.wgpu2d.render_pipelines.blend(draw_state.blend));
+            render_encoder
+                .set_pipeline(&self.wgpu2d.colored_render_pipelines.blend(draw_state.blend));
             render_encoder.set_vertex_buffer(0, vertex_buffer.slice(..));
             render_encoder.draw(0..colored_inputs.len() as u32, 0..1);
+        });
+
+        self.render_bundles.push(render_bundle);
+    }
+
+    fn bundle_textured(
+        &mut self,
+        textured_inputs: &[TexturedPipelineInput],
+        texture: &Texture,
+        draw_state: &DrawState,
+    ) {
+        let vertex_buffer =
+            self.wgpu2d
+                .device
+                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("Vertex Buffer"),
+                    contents: bytemuck::cast_slice(&textured_inputs),
+                    usage: wgpu::BufferUsages::VERTEX,
+                });
+
+        let render_bundle = self.bundle(self.wgpu2d.device, |render_encoder| {
+            render_encoder.set_pipeline(
+                &self
+                    .wgpu2d
+                    .textured_render_pipelines
+                    .blend(draw_state.blend),
+            );
+            render_encoder.set_bind_group(0, &texture.bind_group, &[]);
+            render_encoder.set_vertex_buffer(0, vertex_buffer.slice(..));
+            render_encoder.draw(0..textured_inputs.len() as u32, 0..1);
         });
 
         self.render_bundles.push(render_bundle);
@@ -475,7 +570,7 @@ impl<'a> Graphics for WgpuGraphics<'a> {
     fn tri_list_uv<F>(
         &mut self,
         draw_state: &DrawState,
-        color: &[f32; 4],
+        &color: &[f32; 4],
         texture: &Texture,
         mut f: F,
     ) where
@@ -485,10 +580,10 @@ impl<'a> Graphics for WgpuGraphics<'a> {
             let pipeline_inputs = xys
                 .iter()
                 .zip(uvs.iter())
-                .map(|(&xy, &uv)| TexturedPipelineInput { xy, uv })
+                .map(|(&xy, &uv)| TexturedPipelineInput { xy, uv, color })
                 .collect::<Vec<_>>();
 
-            todo!()
+            self.bundle_textured(&pipeline_inputs, texture, draw_state);
         })
     }
 
