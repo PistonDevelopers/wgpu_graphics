@@ -468,15 +468,19 @@ impl<'a> Wgpu2d<'a> {
 
 pub struct WgpuGraphics<'a> {
     wgpu2d: &'a Wgpu2d<'a>,
+    width: u32,
+    height: u32,
     color_format: wgpu::TextureFormat,
     clear_color: Option<Color>,
-    render_bundles: Vec<wgpu::RenderBundle>,
+    render_bundles: Vec<(Option<[u32; 4]>, wgpu::RenderBundle)>,
 }
 
 impl<'a> WgpuGraphics<'a> {
     pub fn new(wgpu2d: &'a Wgpu2d<'a>, config: &wgpu::SurfaceConfiguration) -> Self {
         Self {
             wgpu2d,
+            width: config.width,
+            height: config.height,
             color_format: config.format,
             clear_color: None,
             render_bundles: vec![],
@@ -506,7 +510,14 @@ impl<'a> WgpuGraphics<'a> {
 
             render_pass.set_blend_constant(wgpu::Color::WHITE);
 
-            render_pass.execute_bundles(self.render_bundles.iter());
+            for (scissor, render_bundle) in &self.render_bundles {
+                let [x, y, width, height] = match scissor {
+                    Some(rect) => *rect,
+                    None => [0, 0, self.width, self.height],
+                };
+                render_pass.set_scissor_rect(x, y, width, height);
+                render_pass.execute_bundles(std::iter::once(render_bundle));
+            }
         })
     }
 
@@ -546,7 +557,8 @@ impl<'a> WgpuGraphics<'a> {
             render_encoder.draw(0..colored_inputs.len() as u32, 0..1);
         });
 
-        self.render_bundles.push(render_bundle);
+        self.render_bundles
+            .push((draw_state.scissor, render_bundle));
     }
 
     fn bundle_textured(
@@ -576,7 +588,8 @@ impl<'a> WgpuGraphics<'a> {
             render_encoder.draw(0..textured_inputs.len() as u32, 0..1);
         });
 
-        self.render_bundles.push(render_bundle);
+        self.render_bundles
+            .push((draw_state.scissor, render_bundle));
     }
 }
 
