@@ -159,6 +159,23 @@ impl<T> PsoBlend<T> {
     }
 }
 
+struct PsoStencil<T> {
+    none: T,
+    clip: T,
+    inside: T,
+    outside: T,
+    increment: T,
+}
+
+impl<T> PsoStencil<T> {
+    fn new<F>(f: F) -> PsoStencil<PsoBlend<T>>
+    where
+        F: FnMut(Option<wgpu::BlendState>, Option<wgpu::StencilState>),
+    {
+        todo!()
+    }
+}
+
 pub struct Texture {
     texture: wgpu::Texture,
     sampler: wgpu::Sampler,
@@ -375,7 +392,13 @@ impl<'a> Wgpu2d<'a> {
                     polygon_mode: wgpu::PolygonMode::Fill,
                     conservative: false,
                 },
-                depth_stencil: None,
+                depth_stencil: Some(wgpu::DepthStencilState {
+                    format: wgpu::TextureFormat::Depth24PlusStencil8,
+                    depth_write_enabled: false,
+                    depth_compare: wgpu::CompareFunction::Always,
+                    stencil: wgpu::StencilState::default(),
+                    bias: wgpu::DepthBiasState::default(),
+                }),
                 multisample: wgpu::MultisampleState {
                     count: 1,
                     mask: !0,
@@ -423,7 +446,13 @@ impl<'a> Wgpu2d<'a> {
                     polygon_mode: wgpu::PolygonMode::Fill,
                     conservative: false,
                 },
-                depth_stencil: None,
+                depth_stencil: Some(wgpu::DepthStencilState {
+                    format: wgpu::TextureFormat::Depth24PlusStencil8,
+                    depth_write_enabled: false,
+                    depth_compare: wgpu::CompareFunction::Always,
+                    stencil: wgpu::StencilState::default(),
+                    bias: wgpu::DepthBiasState::default(),
+                }),
                 multisample: wgpu::MultisampleState {
                     count: 1,
                     mask: !0,
@@ -472,17 +501,39 @@ pub struct WgpuGraphics<'a> {
     height: u32,
     color_format: wgpu::TextureFormat,
     clear_color: Option<Color>,
+    stencil: wgpu::Texture,
+    stencil_view: wgpu::TextureView,
     render_bundles: Vec<(Option<[u32; 4]>, wgpu::RenderBundle)>,
 }
 
 impl<'a> WgpuGraphics<'a> {
     pub fn new(wgpu2d: &'a Wgpu2d<'a>, config: &wgpu::SurfaceConfiguration) -> Self {
+        let size = wgpu::Extent3d {
+            width: config.width,
+            height: config.height,
+            depth_or_array_layers: 1,
+        };
+        let stencil = wgpu2d.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Stencil Texture"),
+            size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Depth24PlusStencil8,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+        });
+        let stencil_view = stencil.create_view(&wgpu::TextureViewDescriptor {
+            label: Some("Stencil Texture View"),
+            ..Default::default()
+        });
         Self {
             wgpu2d,
             width: config.width,
             height: config.height,
             color_format: config.format,
             clear_color: None,
+            stencil,
+            stencil_view,
             render_bundles: vec![],
         }
     }
@@ -505,7 +556,14 @@ impl<'a> WgpuGraphics<'a> {
                     resolve_target: None,
                     ops: wgpu::Operations { load, store: true },
                 }],
-                depth_stencil_attachment: None,
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &self.stencil_view,
+                    depth_ops: None,
+                    stencil_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(0),
+                        store: true,
+                    }),
+                }),
             });
 
             render_pass.set_blend_constant(wgpu::Color::WHITE);
@@ -529,7 +587,11 @@ impl<'a> WgpuGraphics<'a> {
             device.create_render_bundle_encoder(&wgpu::RenderBundleEncoderDescriptor {
                 label: Some("Render Bundle Encoder"),
                 color_formats: &[self.color_format],
-                depth_stencil: None,
+                depth_stencil: Some(wgpu::RenderBundleDepthStencil {
+                    format: wgpu::TextureFormat::Depth24PlusStencil8,
+                    depth_read_only: true,
+                    stencil_read_only: false,
+                }),
                 sample_count: 1,
             });
 
