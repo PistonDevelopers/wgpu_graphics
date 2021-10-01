@@ -7,8 +7,11 @@ use std::{
     fmt::{self, Display, Formatter},
     path::Path,
 };
-use texture::{CreateTexture, Format, TextureOp, TextureSettings};
+use texture::{CreateTexture, Format, TextureOp, TextureSettings, UpdateTexture};
 use wgpu::util::DeviceExt;
+
+pub type GlyphCache<'a> =
+    graphics::glyph_cache::rusttype::GlyphCache<'a, TextureContext<'a>, Texture>;
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
@@ -446,6 +449,49 @@ impl<'a> CreateTexture<TextureContext<'a>> for Texture {
             width,
             height,
         })
+    }
+}
+
+impl<'a> UpdateTexture<TextureContext<'a>> for Texture {
+    fn update<O, S>(
+        &mut self,
+        TextureContext { queue, .. }: &mut TextureContext<'a>,
+        _format: Format,
+        memory: &[u8],
+        offset: O,
+        size: S,
+    ) -> Result<(), TextureError>
+    where
+        O: Into<[u32; 2]>,
+        S: Into<[u32; 2]>,
+    {
+        let Texture { ref texture, .. } = self;
+        let [x, y] = offset.into();
+        let [width, height] = size.into();
+
+        let origin = wgpu::Origin3d { x, y, z: 0 };
+        let size = wgpu::Extent3d {
+            width,
+            height,
+            depth_or_array_layers: 1,
+        };
+
+        queue.write_texture(
+            wgpu::ImageCopyTexture {
+                texture,
+                mip_level: 0,
+                origin,
+                aspect: wgpu::TextureAspect::All,
+            },
+            memory,
+            wgpu::ImageDataLayout {
+                offset: 0,
+                bytes_per_row: std::num::NonZeroU32::new(4 * width),
+                rows_per_image: std::num::NonZeroU32::new(height),
+            },
+            size,
+        );
+        Ok(())
     }
 }
 
