@@ -1,5 +1,7 @@
 use graphics::{
-    draw_state::Blend, types::Color, Context, DrawState, Graphics, ImageSize, Viewport,
+    draw_state::{Blend, Stencil},
+    types::Color,
+    Context, DrawState, Graphics, ImageSize, Viewport,
 };
 use std::{
     fmt::{self, Display, Formatter},
@@ -80,73 +82,6 @@ struct PsoBlend<T> {
 }
 
 impl<T> PsoBlend<T> {
-    fn new<F>(mut f: F) -> Self
-    where
-        F: FnMut(Option<wgpu::BlendState>) -> T,
-    {
-        use wgpu::{BlendComponent, BlendFactor::*, BlendOperation::*, BlendState};
-
-        let none = f(None);
-        let alpha = f(Some(BlendState::ALPHA_BLENDING));
-        let add = f(Some(BlendState {
-            color: BlendComponent {
-                src_factor: One,
-                dst_factor: One,
-                operation: Add,
-            },
-            alpha: BlendComponent {
-                src_factor: One,
-                dst_factor: One,
-                operation: Add,
-            },
-        }));
-        let lighter = f(Some(BlendState {
-            color: BlendComponent {
-                src_factor: SrcAlpha,
-                dst_factor: One,
-                operation: Add,
-            },
-            alpha: BlendComponent {
-                src_factor: Zero,
-                dst_factor: One,
-                operation: Add,
-            },
-        }));
-        let multiply = f(Some(BlendState {
-            color: BlendComponent {
-                src_factor: Dst,
-                dst_factor: Zero,
-                operation: Add,
-            },
-            alpha: BlendComponent {
-                src_factor: DstAlpha,
-                dst_factor: Zero,
-                operation: Add,
-            },
-        }));
-        let invert = f(Some(BlendState {
-            color: BlendComponent {
-                src_factor: Constant,
-                dst_factor: Src,
-                operation: Subtract,
-            },
-            alpha: BlendComponent {
-                src_factor: Zero,
-                dst_factor: One,
-                operation: Add,
-            },
-        }));
-
-        Self {
-            alpha,
-            add,
-            multiply,
-            invert,
-            none,
-            lighter,
-        }
-    }
-
     fn blend(&self, blend: Option<Blend>) -> &T {
         match blend {
             None => &self.none,
@@ -160,19 +95,183 @@ impl<T> PsoBlend<T> {
 }
 
 struct PsoStencil<T> {
-    none: T,
-    clip: T,
-    inside: T,
-    outside: T,
-    increment: T,
+    none: PsoBlend<T>,
+    clip: PsoBlend<T>,
+    inside: PsoBlend<T>,
+    outside: PsoBlend<T>,
+    increment: PsoBlend<T>,
 }
 
 impl<T> PsoStencil<T> {
-    fn new<F>(f: F) -> PsoStencil<PsoBlend<T>>
+    fn new<F>(mut f: F) -> PsoStencil<T>
     where
-        F: FnMut(Option<wgpu::BlendState>, Option<wgpu::StencilState>),
+        F: FnMut(Option<wgpu::BlendState>, wgpu::StencilState) -> T,
     {
-        todo!()
+        use wgpu::{
+            BlendComponent, BlendFactor, BlendOperation, BlendState, CompareFunction,
+            StencilFaceState, StencilOperation, StencilState,
+        };
+
+        let stencil_none = StencilState {
+            front: StencilFaceState::IGNORE,
+            back: StencilFaceState::IGNORE,
+            read_mask: 0,
+            write_mask: 0,
+        };
+        let stencil_clip = StencilState {
+            front: StencilFaceState {
+                compare: CompareFunction::Never,
+                fail_op: StencilOperation::Replace,
+                ..Default::default()
+            },
+            back: StencilFaceState {
+                compare: CompareFunction::Never,
+                fail_op: StencilOperation::Replace,
+                ..Default::default()
+            },
+            read_mask: 255,
+            write_mask: 255,
+        };
+        let stencil_inside = StencilState {
+            front: StencilFaceState {
+                compare: CompareFunction::Equal,
+                ..Default::default()
+            },
+            back: StencilFaceState {
+                compare: CompareFunction::Equal,
+                ..Default::default()
+            },
+            read_mask: 255,
+            write_mask: 255,
+        };
+        let stencil_outside = StencilState {
+            front: StencilFaceState {
+                compare: CompareFunction::NotEqual,
+                ..Default::default()
+            },
+            back: StencilFaceState {
+                compare: CompareFunction::NotEqual,
+                ..Default::default()
+            },
+            read_mask: 255,
+            write_mask: 255,
+        };
+        let stencil_increment = StencilState {
+            front: StencilFaceState {
+                compare: CompareFunction::Never,
+                fail_op: StencilOperation::IncrementClamp,
+                ..Default::default()
+            },
+            back: StencilFaceState {
+                compare: CompareFunction::Never,
+                fail_op: StencilOperation::IncrementClamp,
+                ..Default::default()
+            },
+            read_mask: 255,
+            write_mask: 255,
+        };
+
+        let blend_add = BlendState {
+            color: BlendComponent {
+                src_factor: BlendFactor::One,
+                dst_factor: BlendFactor::One,
+                operation: BlendOperation::Add,
+            },
+            alpha: BlendComponent {
+                src_factor: BlendFactor::One,
+                dst_factor: BlendFactor::One,
+                operation: BlendOperation::Add,
+            },
+        };
+        let blend_lighter = BlendState {
+            color: BlendComponent {
+                src_factor: BlendFactor::SrcAlpha,
+                dst_factor: BlendFactor::One,
+                operation: BlendOperation::Add,
+            },
+            alpha: BlendComponent {
+                src_factor: BlendFactor::Zero,
+                dst_factor: BlendFactor::One,
+                operation: BlendOperation::Add,
+            },
+        };
+        let blend_multiply = BlendState {
+            color: BlendComponent {
+                src_factor: BlendFactor::Dst,
+                dst_factor: BlendFactor::Zero,
+                operation: BlendOperation::Add,
+            },
+            alpha: BlendComponent {
+                src_factor: BlendFactor::DstAlpha,
+                dst_factor: BlendFactor::Zero,
+                operation: BlendOperation::Add,
+            },
+        };
+        let blend_invert = BlendState {
+            color: BlendComponent {
+                src_factor: BlendFactor::Constant,
+                dst_factor: BlendFactor::Src,
+                operation: BlendOperation::Subtract,
+            },
+            alpha: BlendComponent {
+                src_factor: BlendFactor::Zero,
+                dst_factor: BlendFactor::One,
+                operation: BlendOperation::Add,
+            },
+        };
+
+        PsoStencil {
+            none: PsoBlend {
+                none: f(None, stencil_none.clone()),
+                alpha: f(Some(BlendState::ALPHA_BLENDING), stencil_none.clone()),
+                add: f(Some(blend_add), stencil_none.clone()),
+                lighter: f(Some(blend_lighter), stencil_none.clone()),
+                multiply: f(Some(blend_multiply), stencil_none.clone()),
+                invert: f(Some(blend_invert), stencil_none),
+            },
+            clip: PsoBlend {
+                none: f(None, stencil_clip.clone()),
+                alpha: f(Some(BlendState::ALPHA_BLENDING), stencil_clip.clone()),
+                add: f(Some(blend_add), stencil_clip.clone()),
+                lighter: f(Some(blend_lighter), stencil_clip.clone()),
+                multiply: f(Some(blend_multiply), stencil_clip.clone()),
+                invert: f(Some(blend_invert), stencil_clip),
+            },
+            inside: PsoBlend {
+                none: f(None, stencil_inside.clone()),
+                alpha: f(Some(BlendState::ALPHA_BLENDING), stencil_inside.clone()),
+                add: f(Some(blend_add), stencil_inside.clone()),
+                lighter: f(Some(blend_lighter), stencil_inside.clone()),
+                multiply: f(Some(blend_multiply), stencil_inside.clone()),
+                invert: f(Some(blend_invert), stencil_inside),
+            },
+            outside: PsoBlend {
+                none: f(None, stencil_outside.clone()),
+                alpha: f(Some(BlendState::ALPHA_BLENDING), stencil_outside.clone()),
+                add: f(Some(blend_add), stencil_outside.clone()),
+                lighter: f(Some(blend_lighter), stencil_outside.clone()),
+                multiply: f(Some(blend_multiply), stencil_outside.clone()),
+                invert: f(Some(blend_invert), stencil_outside),
+            },
+            increment: PsoBlend {
+                none: f(None, stencil_increment.clone()),
+                alpha: f(Some(BlendState::ALPHA_BLENDING), stencil_increment.clone()),
+                add: f(Some(blend_add), stencil_increment.clone()),
+                lighter: f(Some(blend_lighter), stencil_increment.clone()),
+                multiply: f(Some(blend_multiply), stencil_increment.clone()),
+                invert: f(Some(blend_invert), stencil_increment),
+            },
+        }
+    }
+
+    fn stencil_blend(&self, stencil: Option<Stencil>, blend: Option<Blend>) -> (&T, u32) {
+        match stencil {
+            None => (self.none.blend(blend), 0),
+            Some(Stencil::Clip(val)) => (self.clip.blend(blend), val as u32),
+            Some(Stencil::Inside(val)) => (self.inside.blend(blend), val as u32),
+            Some(Stencil::Outside(val)) => (self.outside.blend(blend), val as u32),
+            Some(Stencil::Increment) => (self.increment.blend(blend), 0),
+        }
     }
 }
 
@@ -358,8 +457,8 @@ impl ImageSize for Texture {
 
 pub struct Wgpu2d<'a> {
     device: &'a wgpu::Device,
-    colored_render_pipelines: PsoBlend<wgpu::RenderPipeline>,
-    textured_render_pipelines: PsoBlend<wgpu::RenderPipeline>,
+    colored_render_pipelines: PsoStencil<wgpu::RenderPipeline>,
+    textured_render_pipelines: PsoStencil<wgpu::RenderPipeline>,
 }
 
 impl<'a> Wgpu2d<'a> {
@@ -374,7 +473,7 @@ impl<'a> Wgpu2d<'a> {
         let colored_shader_module =
             device.create_shader_module(&wgpu::include_wgsl!("colored.wgsl"));
 
-        let colored_render_pipelines = PsoBlend::new(|blend| {
+        let colored_render_pipelines = PsoStencil::new(|blend, stencil| {
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some("Colored Render Pipeline"),
                 layout: Some(&colored_pipeline_layout),
@@ -396,7 +495,7 @@ impl<'a> Wgpu2d<'a> {
                     format: wgpu::TextureFormat::Depth24PlusStencil8,
                     depth_write_enabled: false,
                     depth_compare: wgpu::CompareFunction::Always,
-                    stencil: wgpu::StencilState::default(),
+                    stencil,
                     bias: wgpu::DepthBiasState::default(),
                 }),
                 multisample: wgpu::MultisampleState {
@@ -428,7 +527,7 @@ impl<'a> Wgpu2d<'a> {
         let textured_shader_module =
             device.create_shader_module(&wgpu::include_wgsl!("textured.wgsl"));
 
-        let textured_render_pipelines = PsoBlend::new(|blend| {
+        let textured_render_pipelines = PsoStencil::new(|blend, stencil| {
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some("Textured Render Pipeline"),
                 layout: Some(&textured_pipeline_layout),
@@ -450,7 +549,7 @@ impl<'a> Wgpu2d<'a> {
                     format: wgpu::TextureFormat::Depth24PlusStencil8,
                     depth_write_enabled: false,
                     depth_compare: wgpu::CompareFunction::Always,
-                    stencil: wgpu::StencilState::default(),
+                    stencil,
                     bias: wgpu::DepthBiasState::default(),
                 }),
                 multisample: wgpu::MultisampleState {
@@ -503,7 +602,7 @@ pub struct WgpuGraphics<'a> {
     clear_color: Option<Color>,
     stencil: wgpu::Texture,
     stencil_view: wgpu::TextureView,
-    render_bundles: Vec<(Option<[u32; 4]>, wgpu::RenderBundle)>,
+    render_bundles: Vec<(Option<[u32; 4]>, u32, wgpu::RenderBundle)>,
 }
 
 impl<'a> WgpuGraphics<'a> {
@@ -568,12 +667,13 @@ impl<'a> WgpuGraphics<'a> {
 
             render_pass.set_blend_constant(wgpu::Color::WHITE);
 
-            for (scissor, render_bundle) in &self.render_bundles {
+            for &(scissor, stencil_val, ref render_bundle) in &self.render_bundles {
                 let [x, y, width, height] = match scissor {
-                    Some(rect) => *rect,
+                    Some(rect) => rect,
                     None => [0, 0, self.width, self.height],
                 };
                 render_pass.set_scissor_rect(x, y, width, height);
+                render_pass.set_stencil_reference(stencil_val);
                 render_pass.execute_bundles(std::iter::once(render_bundle));
             }
         })
@@ -612,15 +712,19 @@ impl<'a> WgpuGraphics<'a> {
                     usage: wgpu::BufferUsages::VERTEX,
                 });
 
+        let (pipeline, stencil_val) = self
+            .wgpu2d
+            .colored_render_pipelines
+            .stencil_blend(draw_state.stencil, draw_state.blend);
+
         let render_bundle = self.bundle(self.wgpu2d.device, |render_encoder| {
-            render_encoder
-                .set_pipeline(&self.wgpu2d.colored_render_pipelines.blend(draw_state.blend));
+            render_encoder.set_pipeline(pipeline);
             render_encoder.set_vertex_buffer(0, vertex_buffer.slice(..));
             render_encoder.draw(0..colored_inputs.len() as u32, 0..1);
         });
 
         self.render_bundles
-            .push((draw_state.scissor, render_bundle));
+            .push((draw_state.scissor, stencil_val, render_bundle));
     }
 
     fn bundle_textured(
@@ -638,20 +742,20 @@ impl<'a> WgpuGraphics<'a> {
                     usage: wgpu::BufferUsages::VERTEX,
                 });
 
+        let (pipeline, stencil_val) = self
+            .wgpu2d
+            .textured_render_pipelines
+            .stencil_blend(draw_state.stencil, draw_state.blend);
+
         let render_bundle = self.bundle(self.wgpu2d.device, |render_encoder| {
-            render_encoder.set_pipeline(
-                &self
-                    .wgpu2d
-                    .textured_render_pipelines
-                    .blend(draw_state.blend),
-            );
+            render_encoder.set_pipeline(pipeline);
             render_encoder.set_bind_group(0, &texture.bind_group, &[]);
             render_encoder.set_vertex_buffer(0, vertex_buffer.slice(..));
             render_encoder.draw(0..textured_inputs.len() as u32, 0..1);
         });
 
         self.render_bundles
-            .push((draw_state.scissor, render_bundle));
+            .push((draw_state.scissor, stencil_val, render_bundle));
     }
 }
 
