@@ -818,11 +818,20 @@ impl<'a> Graphics for WgpuGraphics<'a> {
         })
     }
 
-    fn tri_list_uv_c<F>(&mut self, draw_state: &DrawState, texture: &Texture, f: F)
+    fn tri_list_uv_c<F>(&mut self, draw_state: &DrawState, texture: &Texture, mut f: F)
     where
         F: FnMut(&mut dyn FnMut(&[[f32; 2]], &[[f32; 2]], &[[f32; 4]])),
     {
-        todo!()
+        f(&mut |xys, uvs, colors| {
+            let pipeline_inputs = xys
+                .iter()
+                .zip(uvs.iter())
+                .zip(colors.iter())
+                .map(|((&xy, &uv), &color)| TexturedPipelineInput { xy, uv, color })
+                .collect::<Vec<_>>();
+
+            self.bundle_textured(&pipeline_inputs, texture, draw_state);
+        })
     }
 }
 
