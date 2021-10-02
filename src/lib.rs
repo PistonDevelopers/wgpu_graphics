@@ -1,3 +1,5 @@
+//! A [Piston 2D graphics](https://github.com/pistondevelopers/graphics) back-end using [wgpu](https://github.com/gfx-rs/wgpu).
+
 use graphics::{
     draw_state::{Blend, Stencil},
     types::Color,
@@ -12,9 +14,11 @@ use wgpu::util::DeviceExt;
 pub use graphics::ImageSize;
 pub use texture::*;
 
+/// Stores textures for text rendering.
 pub type GlyphCache<'a> =
     graphics::glyph_cache::rusttype::GlyphCache<'a, TextureContext<'a>, Texture>;
 
+/// Input struct for the "colored" pipeline's vertex shader.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 struct ColoredPipelineInput {
@@ -43,6 +47,7 @@ impl ColoredPipelineInput {
     }
 }
 
+/// Input struct for the "textured" pipeline's vertex shader.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 struct TexturedPipelineInput {
@@ -77,6 +82,7 @@ impl TexturedPipelineInput {
     }
 }
 
+/// Stores `T` object for each Blend mode.
 struct PsoBlend<T> {
     none: T,
     alpha: T,
@@ -87,6 +93,7 @@ struct PsoBlend<T> {
 }
 
 impl<T> PsoBlend<T> {
+    /// Returns `T` object for `blend`.
     fn blend(&self, blend: Option<Blend>) -> &T {
         match blend {
             None => &self.none,
@@ -99,6 +106,7 @@ impl<T> PsoBlend<T> {
     }
 }
 
+/// Stores `T` object for each (Stencil, Blend) mode.
 struct PsoStencil<T> {
     none: PsoBlend<T>,
     clip: PsoBlend<T>,
@@ -108,6 +116,7 @@ struct PsoStencil<T> {
 }
 
 impl<T> PsoStencil<T> {
+    /// Creates a new `PsoStencil<T>`, using `f`, for all (Stencil, Blend) mode.
     fn new<F>(mut f: F) -> PsoStencil<T>
     where
         F: FnMut(Option<wgpu::BlendState>, wgpu::StencilState) -> T,
@@ -269,6 +278,7 @@ impl<T> PsoStencil<T> {
         }
     }
 
+    /// Returns `T` object for `stencil` and `blend`.
     fn stencil_blend(&self, stencil: Option<Stencil>, blend: Option<Blend>) -> (&T, u32) {
         match stencil {
             None => (self.none.blend(blend), 0),
@@ -280,6 +290,7 @@ impl<T> PsoStencil<T> {
     }
 }
 
+/// Represents a texture.
 pub struct Texture {
     texture: wgpu::Texture,
     sampler: wgpu::Sampler,
@@ -288,18 +299,21 @@ pub struct Texture {
     height: u32,
 }
 
+/// Context required to create and update textures.
 pub struct TextureContext<'a> {
     device: &'a wgpu::Device,
     queue: &'a wgpu::Queue,
 }
 
 impl<'a> TextureContext<'a> {
+    /// Creates a new `TextureContext` from its parts.
     pub fn from_parts(device: &'a wgpu::Device, queue: &'a wgpu::Queue) -> Self {
         TextureContext { device, queue }
     }
 }
 
 impl Texture {
+    /// Creates a `Texture` with image loading from `path`.
     pub fn from_path<'a, P>(
         context: &mut TextureContext<'a>,
         path: P,
@@ -317,6 +331,7 @@ impl Texture {
         Texture::from_image(context, &img, settings)
     }
 
+    /// Creates a `Texture` with `img`.
     pub fn from_image<'a>(
         context: &mut TextureContext<'a>,
         img: &image::RgbaImage,
@@ -326,6 +341,8 @@ impl Texture {
         CreateTexture::create(context, Format::Rgba8, img, [width, height], settings)
     }
 
+    /// Creates a [`BindGroupLayout`](`wgpu::BindGroupLayout`) for "textured" pipeline's fragment shader's binding.
+    // FIXME: Maybe should be moved out of `impl Texture`?
     fn create_bind_group_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
         device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("Texture Bind Group Layout"),
@@ -358,6 +375,7 @@ impl<'a> TextureOp<TextureContext<'a>> for Texture {
     type Error = TextureError;
 }
 
+/// Texture creation or update error.
 #[derive(Debug)]
 pub enum TextureError {
     ImageError(image::error::ImageError),
@@ -532,6 +550,7 @@ impl ImageSize for Texture {
     }
 }
 
+/// The resource needed for rendering 2D.
 pub struct Wgpu2d<'a> {
     device: &'a wgpu::Device,
     colored_render_pipelines: PsoStencil<wgpu::RenderPipeline>,
@@ -539,6 +558,7 @@ pub struct Wgpu2d<'a> {
 }
 
 impl<'a> Wgpu2d<'a> {
+    /// Creates a new `Wgpu2d`.
     pub fn new<'b>(device: &'a wgpu::Device, config: &'b wgpu::SurfaceConfiguration) -> Self {
         let colored_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -653,6 +673,9 @@ impl<'a> Wgpu2d<'a> {
         }
     }
 
+    /// Performs 2D graphics operations and returns encoded commands.
+    ///
+    /// To actually draw on a window surface, you must [`submit`](`wgpu::Queue::submit`) the returned [`CommandBuffer`](`wgpu::CommandBuffer`).
     pub fn draw<F>(
         &mut self,
         device: &wgpu::Device,
@@ -671,6 +694,7 @@ impl<'a> Wgpu2d<'a> {
     }
 }
 
+/// Graphics back-end.
 pub struct WgpuGraphics<'a> {
     wgpu2d: &'a Wgpu2d<'a>,
     width: u32,
@@ -683,6 +707,7 @@ pub struct WgpuGraphics<'a> {
 }
 
 impl<'a> WgpuGraphics<'a> {
+    /// Creates a new `WgpuGraphics`.
     pub fn new(wgpu2d: &'a Wgpu2d<'a>, config: &wgpu::SurfaceConfiguration) -> Self {
         let size = wgpu::Extent3d {
             width: config.width,
@@ -714,6 +739,9 @@ impl<'a> WgpuGraphics<'a> {
         }
     }
 
+    /// Performs 2D graphics operations and returns encoded commands.
+    ///
+    /// To actually draw on a window surface, you must [`submit`](`wgpu::Queue::submit`) the returned [`CommandBuffer`](`wgpu::CommandBuffer`).
     pub fn draw(
         self,
         device: &wgpu::Device,
@@ -750,6 +778,10 @@ impl<'a> WgpuGraphics<'a> {
                     None => [0, 0, self.width, self.height],
                 };
                 render_pass.set_scissor_rect(x, y, width, height);
+                // TODO: This should work, but it doesn't.
+                // On Post Fragment Shader stage, reference stencil is set to 0,
+                // no matter what this `stencil_val` is.
+                // Combination with RenderBundle wouldn't work maybe?
                 render_pass.set_stencil_reference(stencil_val);
                 render_pass.execute_bundles(std::iter::once(render_bundle));
             }
@@ -844,7 +876,9 @@ impl<'a> Graphics for WgpuGraphics<'a> {
         self.render_bundles.clear();
     }
 
-    fn clear_stencil(&mut self, value: u8) {}
+    fn clear_stencil(&mut self, value: u8) {
+        // TODO: Implement this when stencil feature starts working.
+    }
 
     fn tri_list<F>(&mut self, draw_state: &DrawState, &color: &[f32; 4], mut f: F)
     where
