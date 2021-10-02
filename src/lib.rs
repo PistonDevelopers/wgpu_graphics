@@ -785,7 +785,7 @@ impl<'a> WgpuGraphics<'a> {
                 .device
                 .create_buffer_init(&wgpu::util::BufferInitDescriptor {
                     label: Some("Vertex Buffer"),
-                    contents: bytemuck::cast_slice(&colored_inputs),
+                    contents: bytemuck::cast_slice(colored_inputs),
                     usage: wgpu::BufferUsages::VERTEX,
                 });
 
@@ -815,7 +815,7 @@ impl<'a> WgpuGraphics<'a> {
                 .device
                 .create_buffer_init(&wgpu::util::BufferInitDescriptor {
                     label: Some("Vertex Buffer"),
-                    contents: bytemuck::cast_slice(&textured_inputs),
+                    contents: bytemuck::cast_slice(textured_inputs),
                     usage: wgpu::BufferUsages::VERTEX,
                 });
 
