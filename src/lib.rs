@@ -1,14 +1,16 @@
 use graphics::{
     draw_state::{Blend, Stencil},
     types::Color,
-    Context, DrawState, Graphics, ImageSize, Viewport,
+    Context, DrawState, Graphics, Viewport,
 };
 use std::{
     fmt::{self, Display, Formatter},
     path::Path,
 };
-use texture::{CreateTexture, Format, TextureOp, TextureSettings, UpdateTexture};
 use wgpu::util::DeviceExt;
+
+pub use graphics::ImageSize;
+pub use texture::*;
 
 pub type GlyphCache<'a> =
     graphics::glyph_cache::rusttype::GlyphCache<'a, TextureContext<'a>, Texture>;
@@ -418,29 +420,29 @@ impl<'a> CreateTexture<TextureContext<'a>> for Texture {
 
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             address_mode_u: match settings.get_wrap_u() {
-                texture::Wrap::ClampToEdge => wgpu::AddressMode::ClampToEdge,
-                texture::Wrap::Repeat => wgpu::AddressMode::Repeat,
-                texture::Wrap::MirroredRepeat => wgpu::AddressMode::MirrorRepeat,
-                texture::Wrap::ClampToBorder => wgpu::AddressMode::ClampToBorder,
+                Wrap::ClampToEdge => wgpu::AddressMode::ClampToEdge,
+                Wrap::Repeat => wgpu::AddressMode::Repeat,
+                Wrap::MirroredRepeat => wgpu::AddressMode::MirrorRepeat,
+                Wrap::ClampToBorder => wgpu::AddressMode::ClampToBorder,
             },
             address_mode_v: match settings.get_wrap_v() {
-                texture::Wrap::ClampToEdge => wgpu::AddressMode::ClampToEdge,
-                texture::Wrap::Repeat => wgpu::AddressMode::Repeat,
-                texture::Wrap::MirroredRepeat => wgpu::AddressMode::MirrorRepeat,
-                texture::Wrap::ClampToBorder => wgpu::AddressMode::ClampToBorder,
+                Wrap::ClampToEdge => wgpu::AddressMode::ClampToEdge,
+                Wrap::Repeat => wgpu::AddressMode::Repeat,
+                Wrap::MirroredRepeat => wgpu::AddressMode::MirrorRepeat,
+                Wrap::ClampToBorder => wgpu::AddressMode::ClampToBorder,
             },
             address_mode_w: wgpu::AddressMode::ClampToEdge,
             mag_filter: match settings.get_mag() {
-                texture::Filter::Linear => wgpu::FilterMode::Linear,
-                texture::Filter::Nearest => wgpu::FilterMode::Nearest,
+                Filter::Linear => wgpu::FilterMode::Linear,
+                Filter::Nearest => wgpu::FilterMode::Nearest,
             },
             min_filter: match settings.get_min() {
-                texture::Filter::Linear => wgpu::FilterMode::Linear,
-                texture::Filter::Nearest => wgpu::FilterMode::Nearest,
+                Filter::Linear => wgpu::FilterMode::Linear,
+                Filter::Nearest => wgpu::FilterMode::Nearest,
             },
             mipmap_filter: match settings.get_mipmap() {
-                texture::Filter::Linear => wgpu::FilterMode::Linear,
-                texture::Filter::Nearest => wgpu::FilterMode::Nearest,
+                Filter::Linear => wgpu::FilterMode::Linear,
+                Filter::Nearest => wgpu::FilterMode::Nearest,
             },
             border_color: if settings.get_border_color() == [0.0; 4] {
                 Some(wgpu::SamplerBorderColor::TransparentBlack)
