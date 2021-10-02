@@ -369,13 +369,14 @@ impl Display for TextureError {
     }
 }
 
+#[allow(clippy::float_cmp)]
 impl<'a> CreateTexture<TextureContext<'a>> for Texture {
     fn create<S: Into<[u32; 2]>>(
         TextureContext { device, queue }: &mut TextureContext<'a>,
         _format: Format,
         memory: &[u8],
         size: S,
-        _settings: &TextureSettings, // TODO: Don't ignore settings
+        settings: &TextureSettings,
     ) -> Result<Self, TextureError> {
         let [width, height] = size.into();
         let texture_size = wgpu::Extent3d {
@@ -416,12 +417,40 @@ impl<'a> CreateTexture<TextureContext<'a>> for Texture {
         });
 
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-            address_mode_u: wgpu::AddressMode::ClampToEdge,
-            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_u: match settings.get_wrap_u() {
+                texture::Wrap::ClampToEdge => wgpu::AddressMode::ClampToEdge,
+                texture::Wrap::Repeat => wgpu::AddressMode::Repeat,
+                texture::Wrap::MirroredRepeat => wgpu::AddressMode::MirrorRepeat,
+                texture::Wrap::ClampToBorder => wgpu::AddressMode::ClampToBorder,
+            },
+            address_mode_v: match settings.get_wrap_v() {
+                texture::Wrap::ClampToEdge => wgpu::AddressMode::ClampToEdge,
+                texture::Wrap::Repeat => wgpu::AddressMode::Repeat,
+                texture::Wrap::MirroredRepeat => wgpu::AddressMode::MirrorRepeat,
+                texture::Wrap::ClampToBorder => wgpu::AddressMode::ClampToBorder,
+            },
             address_mode_w: wgpu::AddressMode::ClampToEdge,
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Nearest,
-            mipmap_filter: wgpu::FilterMode::Nearest,
+            mag_filter: match settings.get_mag() {
+                texture::Filter::Linear => wgpu::FilterMode::Linear,
+                texture::Filter::Nearest => wgpu::FilterMode::Nearest,
+            },
+            min_filter: match settings.get_min() {
+                texture::Filter::Linear => wgpu::FilterMode::Linear,
+                texture::Filter::Nearest => wgpu::FilterMode::Nearest,
+            },
+            mipmap_filter: match settings.get_mipmap() {
+                texture::Filter::Linear => wgpu::FilterMode::Linear,
+                texture::Filter::Nearest => wgpu::FilterMode::Nearest,
+            },
+            border_color: if settings.get_border_color() == [0.0; 4] {
+                Some(wgpu::SamplerBorderColor::TransparentBlack)
+            } else if settings.get_border_color() == [0.0, 0.0, 0.0, 1.0] {
+                Some(wgpu::SamplerBorderColor::OpaqueBlack)
+            } else if settings.get_border_color() == [1.0; 4] {
+                Some(wgpu::SamplerBorderColor::OpaqueWhite)
+            } else {
+                None
+            },
             ..Default::default()
         });
 
