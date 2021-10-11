@@ -703,7 +703,12 @@ pub struct WgpuGraphics<'a> {
     clear_color: Option<Color>,
     stencil: wgpu::Texture,
     stencil_view: wgpu::TextureView,
-    render_bundles: Vec<(Option<[u32; 4]>, u32, wgpu::RenderBundle)>,
+    render_bundles: Vec<(
+        &'a wgpu::RenderPipeline,
+        Option<[u32; 4]>,
+        u32,
+        wgpu::RenderBundle,
+    )>,
 }
 
 impl<'a> WgpuGraphics<'a> {
@@ -772,16 +777,18 @@ impl<'a> WgpuGraphics<'a> {
 
             render_pass.set_blend_constant(wgpu::Color::WHITE);
 
-            for &(scissor, stencil_val, ref render_bundle) in &self.render_bundles {
+            for &(pipeline, scissor, stencil_val, ref render_bundle) in &self.render_bundles {
                 let [x, y, width, height] = match scissor {
                     Some(rect) => rect,
                     None => [0, 0, self.width, self.height],
                 };
+                // NOTE: Calling `set_pipeline` is duplicated with the other call in RenderBundle.
+                // This is no a bug, because `set_stencil_reference` operation will be ignored
+                // unless we call it here, and that's because pipeline's stencil flag is checked on rendering.
+                // If wgpu implemented `set_stencil_reference` in `RenderBundleEncoder`, things could be simpler.
+                render_pass.set_pipeline(pipeline);
+
                 render_pass.set_scissor_rect(x, y, width, height);
-                // TODO: This should work, but it doesn't.
-                // On Post Fragment Shader stage, reference stencil is set to 0,
-                // no matter what this `stencil_val` is.
-                // Combination with RenderBundle wouldn't work maybe?
                 render_pass.set_stencil_reference(stencil_val);
                 render_pass.execute_bundles(std::iter::once(render_bundle));
             }
@@ -833,7 +840,7 @@ impl<'a> WgpuGraphics<'a> {
         });
 
         self.render_bundles
-            .push((draw_state.scissor, stencil_val, render_bundle));
+            .push((pipeline, draw_state.scissor, stencil_val, render_bundle));
     }
 
     fn bundle_textured(
@@ -864,7 +871,7 @@ impl<'a> WgpuGraphics<'a> {
         });
 
         self.render_bundles
-            .push((draw_state.scissor, stencil_val, render_bundle));
+            .push((pipeline, draw_state.scissor, stencil_val, render_bundle));
     }
 }
 
