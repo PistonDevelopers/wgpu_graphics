@@ -279,13 +279,13 @@ impl<T> PsoStencil<T> {
     }
 
     /// Returns `T` object for `stencil` and `blend`.
-    fn stencil_blend(&self, stencil: Option<Stencil>, blend: Option<Blend>) -> (&T, u32) {
+    fn stencil_blend(&self, stencil: Option<Stencil>, blend: Option<Blend>) -> (&T, Option<u8>) {
         match stencil {
-            None => (self.none.blend(blend), 0),
-            Some(Stencil::Clip(val)) => (self.clip.blend(blend), val as u32),
-            Some(Stencil::Inside(val)) => (self.inside.blend(blend), val as u32),
-            Some(Stencil::Outside(val)) => (self.outside.blend(blend), val as u32),
-            Some(Stencil::Increment) => (self.increment.blend(blend), 0),
+            None => (self.none.blend(blend), None),
+            Some(Stencil::Clip(val)) => (self.clip.blend(blend), Some(val)),
+            Some(Stencil::Inside(val)) => (self.inside.blend(blend), Some(val)),
+            Some(Stencil::Outside(val)) => (self.outside.blend(blend), Some(val)),
+            Some(Stencil::Increment) => (self.increment.blend(blend), None),
         }
     }
 }
@@ -701,12 +701,13 @@ pub struct WgpuGraphics<'a> {
     height: u32,
     color_format: wgpu::TextureFormat,
     clear_color: Option<Color>,
+    clear_stencil: Option<u8>,
     stencil: wgpu::Texture,
     stencil_view: wgpu::TextureView,
     render_bundles: Vec<(
         &'a wgpu::RenderPipeline,
         Option<[u32; 4]>,
-        u32,
+        Option<u8>,
         wgpu::RenderBundle,
     )>,
 }
@@ -738,6 +739,7 @@ impl<'a> WgpuGraphics<'a> {
             height: config.height,
             color_format: config.format,
             clear_color: None,
+            clear_stencil: None,
             stencil,
             stencil_view,
             render_bundles: vec![],
@@ -752,8 +754,12 @@ impl<'a> WgpuGraphics<'a> {
         device: &wgpu::Device,
         output_view: &wgpu::TextureView,
     ) -> wgpu::CommandBuffer {
-        let load = match self.clear_color {
+        let color_load = match self.clear_color {
             Some(c) => wgpu::LoadOp::Clear(to_wgpu_color(c)),
+            None => wgpu::LoadOp::Load,
+        };
+        let stencil_load = match self.clear_stencil {
+            Some(s) => wgpu::LoadOp::Clear(s as u32),
             None => wgpu::LoadOp::Load,
         };
 
@@ -763,13 +769,16 @@ impl<'a> WgpuGraphics<'a> {
                 color_attachments: &[wgpu::RenderPassColorAttachment {
                     view: output_view,
                     resolve_target: None,
-                    ops: wgpu::Operations { load, store: true },
+                    ops: wgpu::Operations {
+                        load: color_load,
+                        store: true,
+                    },
                 }],
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
                     view: &self.stencil_view,
                     depth_ops: None,
                     stencil_ops: Some(wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(0),
+                        load: stencil_load,
                         store: true,
                     }),
                 }),
@@ -789,7 +798,9 @@ impl<'a> WgpuGraphics<'a> {
                 render_pass.set_pipeline(pipeline);
 
                 render_pass.set_scissor_rect(x, y, width, height);
-                render_pass.set_stencil_reference(stencil_val);
+                if let Some(stencil_val) = stencil_val {
+                    render_pass.set_stencil_reference(stencil_val as u32);
+                }
                 render_pass.execute_bundles(std::iter::once(render_bundle));
             }
         })
@@ -880,11 +891,14 @@ impl<'a> Graphics for WgpuGraphics<'a> {
 
     fn clear_color(&mut self, color: Color) {
         self.clear_color = Some(color);
-        self.render_bundles.clear();
+        self.render_bundles
+            .retain(|&(_, _, stencil_val, _)| stencil_val.is_some());
     }
 
     fn clear_stencil(&mut self, value: u8) {
-        // TODO: Implement this when stencil feature starts working.
+        self.clear_stencil = Some(value);
+        self.render_bundles
+            .retain(|&(_, _, stencil_val, _)| stencil_val.is_none());
     }
 
     fn tri_list<F>(&mut self, draw_state: &DrawState, &color: &[f32; 4], mut f: F)
