@@ -293,7 +293,6 @@ impl<T> PsoStencil<T> {
 /// Represents a texture.
 pub struct Texture {
     texture: wgpu::Texture,
-    sampler: wgpu::Sampler,
     bind_group: wgpu::BindGroup,
     width: u32,
     height: u32,
@@ -493,7 +492,6 @@ impl<'a> CreateTexture<TextureContext<'a>> for Texture {
 
         Ok(Self {
             texture,
-            sampler,
             bind_group,
             width,
             height,
@@ -702,7 +700,6 @@ pub struct WgpuGraphics<'a> {
     color_format: wgpu::TextureFormat,
     clear_color: Option<Color>,
     clear_stencil: Option<u8>,
-    stencil: wgpu::Texture,
     stencil_view: wgpu::TextureView,
     render_bundles: Vec<(
         &'a wgpu::RenderPipeline,
@@ -740,7 +737,6 @@ impl<'a> WgpuGraphics<'a> {
             color_format: config.format,
             clear_color: None,
             clear_stencil: None,
-            stencil,
             stencil_view,
             render_bundles: vec![],
         }
