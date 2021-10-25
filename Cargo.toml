@@ -1,10 +1,13 @@
 [package]
-name = "wgpu_graphics"
+name = "piston2d-wgpu_graphics"
 version = "0.0.0"
 edition = "2018"
 resolver = "2"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+name = "wgpu_graphics"
 
 [dev-dependencies]
 find_folder = "0.3"
