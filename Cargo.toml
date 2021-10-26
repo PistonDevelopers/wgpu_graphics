@@ -1,8 +1,19 @@
 [package]
 name = "piston2d-wgpu_graphics"
-version = "0.0.0"
+version = "0.1.0"
 edition = "2018"
 resolver = "2"
+authors = [
+    "shinmili"
+]
+keywords = ["wgpu", "graphics", "2d", "piston"]
+description = "A WGPU 2D back-end for the Piston game engine"
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+repository = "https://github.com/PistonDevelopers/wgpu_graphics.git"
+homepage = "https://github.com/PistonDevelopers/wgpu_graphics"
+documentation = "https://docs.rs/piston2d-wgpu_graphics"
+exclude = ["assets/*"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
