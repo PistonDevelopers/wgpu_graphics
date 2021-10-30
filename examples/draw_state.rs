@@ -73,8 +73,8 @@ fn main() {
             },
         );
         event.render(|render_args| {
-            let surface_texture = &surface.get_current_frame().unwrap().output.texture;
-            let surface_view = surface_texture.create_view(&wgpu::TextureViewDescriptor::default());
+            let surface_texture = surface.get_current_texture().unwrap();
+            let surface_view = surface_texture.texture.create_view(&wgpu::TextureViewDescriptor::default());
 
             let command_buffer = wgpu2d.draw(
                 &device,
@@ -122,6 +122,7 @@ fn main() {
                 },
             );
             queue.submit(std::iter::once(command_buffer));
+            surface_texture.present();
         });
 
         if let Some(Button::Keyboard(Key::A)) = event.press_args() {
