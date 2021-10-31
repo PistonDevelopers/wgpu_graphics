@@ -45,7 +45,9 @@ fn main() {
         event_resize(&event, &device, &surface, &mut surface_config);
         event.render(|render_args| {
             let surface_texture = surface.get_current_texture().unwrap();
-            let surface_view = surface_texture.texture.create_view(&wgpu::TextureViewDescriptor::default());
+            let surface_view = surface_texture
+                .texture
+                .create_view(&wgpu::TextureViewDescriptor::default());
 
             let command_buffer = wgpu2d.draw(
                 &device,
