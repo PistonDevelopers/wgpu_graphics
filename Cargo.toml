@@ -31,4 +31,4 @@ bytemuck = { version = "1.7", features = ["derive"] }
 image = "0.23.14"
 piston-texture = "0.8.0"
 piston2d-graphics = { version = "0.40.0", features = ["glyph_cache_rusttype"] }
-wgpu = "0.10"
+wgpu = "0.11"
