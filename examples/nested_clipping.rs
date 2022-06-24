@@ -1,11 +1,12 @@
+mod include;
+
+use crate::include::{event_resize, init_surface_config};
 use graphics::{
     clear,
     draw_state::{Blend, DrawState, Stencil},
     Rectangle,
 };
-use piston::{
-    EventSettings, Events, PressEvent, RenderEvent, ResizeArgs, ResizeEvent, Window, WindowSettings,
-};
+use piston::{EventSettings, Events, PressEvent, RenderEvent, WindowSettings};
 use winit_window::WinitWindow;
 
 fn main() {
@@ -27,13 +28,8 @@ fn main() {
         adapter.request_device(&wgpu::DeviceDescriptor::default(), None),
     )
     .unwrap();
-    let mut surface_config = wgpu::SurfaceConfiguration {
-        usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-        format: surface.get_preferred_format(&adapter).unwrap(),
-        width: window.draw_size().width as u32,
-        height: window.draw_size().height as u32,
-        present_mode: wgpu::PresentMode::Fifo,
-    };
+    let mut surface_config = init_surface_config(&surface, &adapter, &window);
+
     surface.configure(&device, &surface_config);
 
     let mut wgpu2d = wgpu_graphics::Wgpu2d::new(&device, &surface_config);
@@ -57,19 +53,7 @@ fn main() {
     };
     let mut clip = true;
     while let Some(event) = events.next(&mut window) {
-        event.resize(
-            |&ResizeArgs {
-                 draw_size: [width, height],
-                 ..
-             }| {
-                surface_config = wgpu::SurfaceConfiguration {
-                    width,
-                    height,
-                    ..surface_config
-                };
-                surface.configure(&device, &surface_config);
-            },
-        );
+        event_resize(&event, &device, &surface, &mut surface_config);
         event.render(|render_args| {
             let surface_texture = &surface.get_current_frame().unwrap().output.texture;
             let surface_view = surface_texture.create_view(&wgpu::TextureViewDescriptor::default());
