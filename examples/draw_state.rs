@@ -22,8 +22,10 @@ fn main() {
         }))
         .unwrap();
 
+    let mut device_descriptor = wgpu::DeviceDescriptor::default();
+    device_descriptor.features.set(wgpu::Features::DEPTH_CLIP_CONTROL, true);
     let (device, queue) = futures::executor::block_on(
-        adapter.request_device(&wgpu::DeviceDescriptor::default(), None),
+        adapter.request_device(&device_descriptor, None),
     )
     .unwrap();
     let mut surface_config = init_surface_config(&surface, &adapter, &window);

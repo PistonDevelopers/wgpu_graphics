@@ -359,10 +359,7 @@ impl Texture {
                 wgpu::BindGroupLayoutEntry {
                     binding: 1,
                     visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Sampler {
-                        filtering: true,
-                        comparison: false,
-                    },
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                     count: None,
                 },
             ],
@@ -566,7 +563,7 @@ impl<'a> Wgpu2d<'a> {
             });
 
         let colored_shader_module =
-            device.create_shader_module(&wgpu::include_wgsl!("colored.wgsl"));
+            device.create_shader_module(wgpu::include_wgsl!("colored.wgsl"));
 
         let colored_render_pipelines = PsoStencil::new(|blend, stencil| {
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -574,7 +571,7 @@ impl<'a> Wgpu2d<'a> {
                 layout: Some(&colored_pipeline_layout),
                 vertex: wgpu::VertexState {
                     module: &colored_shader_module,
-                    entry_point: "main",
+                    entry_point: "vs_main",
                     buffers: &[ColoredPipelineInput::desc()],
                 },
                 primitive: wgpu::PrimitiveState {
@@ -582,7 +579,7 @@ impl<'a> Wgpu2d<'a> {
                     strip_index_format: None,
                     front_face: wgpu::FrontFace::Ccw,
                     cull_mode: None,
-                    clamp_depth: false,
+                    unclipped_depth: true,
                     polygon_mode: wgpu::PolygonMode::Fill,
                     conservative: false,
                 },
@@ -600,13 +597,14 @@ impl<'a> Wgpu2d<'a> {
                 },
                 fragment: Some(wgpu::FragmentState {
                     module: &colored_shader_module,
-                    entry_point: "main",
-                    targets: &[wgpu::ColorTargetState {
+                    entry_point: "fs_main",
+                    targets: &[Some(wgpu::ColorTargetState {
                         format: config.format,
                         blend,
                         write_mask: wgpu::ColorWrites::ALL,
-                    }],
+                    })],
                 }),
+                multiview: None,
             })
         });
 
@@ -620,7 +618,7 @@ impl<'a> Wgpu2d<'a> {
             });
 
         let textured_shader_module =
-            device.create_shader_module(&wgpu::include_wgsl!("textured.wgsl"));
+            device.create_shader_module(wgpu::include_wgsl!("textured.wgsl"));
 
         let textured_render_pipelines = PsoStencil::new(|blend, stencil| {
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -628,7 +626,7 @@ impl<'a> Wgpu2d<'a> {
                 layout: Some(&textured_pipeline_layout),
                 vertex: wgpu::VertexState {
                     module: &textured_shader_module,
-                    entry_point: "main",
+                    entry_point: "vs_main",
                     buffers: &[TexturedPipelineInput::desc()],
                 },
                 primitive: wgpu::PrimitiveState {
@@ -636,7 +634,7 @@ impl<'a> Wgpu2d<'a> {
                     strip_index_format: None,
                     front_face: wgpu::FrontFace::Ccw,
                     cull_mode: None,
-                    clamp_depth: false,
+                    unclipped_depth: true,
                     polygon_mode: wgpu::PolygonMode::Fill,
                     conservative: false,
                 },
@@ -654,13 +652,14 @@ impl<'a> Wgpu2d<'a> {
                 },
                 fragment: Some(wgpu::FragmentState {
                     module: &textured_shader_module,
-                    entry_point: "main",
-                    targets: &[wgpu::ColorTargetState {
+                    entry_point: "fs_main",
+                    targets: &[Some(wgpu::ColorTargetState {
                         format: config.format,
                         blend,
                         write_mask: wgpu::ColorWrites::ALL,
-                    }],
+                    })],
                 }),
+                multiview: None,
             })
         });
 
@@ -762,14 +761,14 @@ impl<'a> WgpuGraphics<'a> {
         encode(device, |encoder| {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Render Pass"),
-                color_attachments: &[wgpu::RenderPassColorAttachment {
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: output_view,
                     resolve_target: None,
                     ops: wgpu::Operations {
                         load: color_load,
                         store: true,
                     },
-                }],
+                })],
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
                     view: &self.stencil_view,
                     depth_ops: None,
@@ -809,13 +808,14 @@ impl<'a> WgpuGraphics<'a> {
         let mut render_bundle_encoder =
             device.create_render_bundle_encoder(&wgpu::RenderBundleEncoderDescriptor {
                 label: Some("Render Bundle Encoder"),
-                color_formats: &[self.color_format],
+                color_formats: &[Some(self.color_format)],
                 depth_stencil: Some(wgpu::RenderBundleDepthStencil {
                     format: wgpu::TextureFormat::Depth24PlusStencil8,
                     depth_read_only: true,
                     stencil_read_only: false,
                 }),
                 sample_count: 1,
+                multiview: None,
             });
 
         f(&mut render_bundle_encoder);
