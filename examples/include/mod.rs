@@ -1,15 +1,15 @@
 use piston::{Event, ResizeArgs, ResizeEvent, Window};
-use wgpu::{Adapter, Device, PresentMode, Surface, SurfaceConfiguration};
+use wgpu::{Adapter, Device, PresentMode, Surface, SurfaceConfiguration, TextureFormat};
 use winit_window::WinitWindow;
 
 pub fn init_surface_config(
-    surface: &Surface,
-    adapter: &Adapter,
+    _surface: &Surface,
+    _adapter: &Adapter,
     window: &WinitWindow,
 ) -> SurfaceConfiguration {
     SurfaceConfiguration {
         usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-        format: surface.get_preferred_format(adapter).unwrap(),
+        format: TextureFormat::Bgra8UnormSrgb,
         width: window.draw_size().width as u32,
         height: window.draw_size().height as u32,
         present_mode: PresentMode::Fifo,

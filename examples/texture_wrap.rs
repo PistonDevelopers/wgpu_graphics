@@ -25,12 +25,11 @@ fn main() {
         }))
         .unwrap();
 
+    let mut device_descriptor = wgpu::DeviceDescriptor::default();
+    device_descriptor.features.set(wgpu::Features::DEPTH_CLIP_CONTROL, true);
+    device_descriptor.features.set(wgpu::Features::ADDRESS_MODE_CLAMP_TO_BORDER, true);
     let (device, queue) = futures::executor::block_on(adapter.request_device(
-        &wgpu::DeviceDescriptor {
-            label: Some("Device"),
-            features: wgpu::Features::ADDRESS_MODE_CLAMP_TO_BORDER,
-            ..Default::default()
-        },
+        &device_descriptor,
         None,
     ))
     .unwrap();
