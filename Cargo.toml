@@ -22,7 +22,7 @@ name = "wgpu_graphics"
 find_folder = "0.3"
 futures = "0.3"
 piston = "0.53"
-pistoncore-winit_window = { git = "https://github.com/PistonDevelopers/winit_window" }
+pistoncore-winit_window = "0.14.0"
 
 [dependencies]
 bytemuck = { version = "1.7", features = ["derive"] }
