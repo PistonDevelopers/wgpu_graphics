@@ -13,6 +13,7 @@ pub fn init_surface_config(
         width: window.draw_size().width as u32,
         height: window.draw_size().height as u32,
         present_mode: PresentMode::Fifo,
+        alpha_mode: wgpu::CompositeAlphaMode::PostMultiplied,
     }
 }
 
