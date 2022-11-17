@@ -1,6 +1,6 @@
 [package]
 name = "piston2d-wgpu_graphics"
-version = "0.6.0"
+version = "0.7.0"
 edition = "2018"
 resolver = "2"
 authors = ["shinmili"]
@@ -29,4 +29,4 @@ bytemuck = { version = "1.7", features = ["derive"] }
 image = "0.24.1"
 piston-texture = "0.8.0"
 piston2d-graphics = { version = "0.42.0", features = ["glyph_cache_rusttype"] }
-wgpu = "0.13.1"
+wgpu = "0.14.0"
