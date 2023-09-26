@@ -409,6 +409,7 @@ impl<'a> CreateTexture<TextureContext<'a>> for Texture {
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::Rgba8UnormSrgb,
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[wgpu::TextureFormat::Rgba8UnormSrgb],
         });
 
         queue.write_texture(
@@ -421,8 +422,8 @@ impl<'a> CreateTexture<TextureContext<'a>> for Texture {
             memory,
             wgpu::ImageDataLayout {
                 offset: 0,
-                bytes_per_row: std::num::NonZeroU32::new(4 * width),
-                rows_per_image: std::num::NonZeroU32::new(height),
+                bytes_per_row: Some(4 * width),
+                rows_per_image: Some(height),
             },
             texture_size,
         );
@@ -530,8 +531,8 @@ impl<'a> UpdateTexture<TextureContext<'a>> for Texture {
             memory,
             wgpu::ImageDataLayout {
                 offset: 0,
-                bytes_per_row: std::num::NonZeroU32::new(4 * width),
-                rows_per_image: std::num::NonZeroU32::new(height),
+                bytes_per_row: Some(4 * width),
+                rows_per_image: Some(height),
             },
             size,
         );
@@ -724,6 +725,7 @@ impl<'a> WgpuGraphics<'a> {
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::Depth24PlusStencil8,
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[wgpu::TextureFormat::Depth24PlusStencil8],
         });
         let stencil_view = stencil.create_view(&wgpu::TextureViewDescriptor {
             label: Some("Stencil Texture View"),

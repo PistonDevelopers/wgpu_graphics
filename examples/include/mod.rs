@@ -14,6 +14,7 @@ pub fn init_surface_config(
         height: window.draw_size().height as u32,
         present_mode: PresentMode::Fifo,
         alpha_mode: wgpu::CompositeAlphaMode::PostMultiplied,
+        view_formats: vec![TextureFormat::Bgra8UnormSrgb],
     }
 }
 
@@ -31,7 +32,7 @@ pub fn event_resize(
             *surface_config = SurfaceConfiguration {
                 width,
                 height,
-                ..*surface_config
+                ..surface_config.clone()
             };
             surface.configure(device, surface_config);
         },
