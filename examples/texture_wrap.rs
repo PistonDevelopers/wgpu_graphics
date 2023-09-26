@@ -16,8 +16,8 @@ fn main() {
         (640, 480),
     ));
 
-    let instance = wgpu::Instance::new(wgpu::Backends::all());
-    let surface = unsafe { instance.create_surface(window.get_window()) };
+    let instance = wgpu::Instance::new(Default::default());
+    let surface = unsafe { instance.create_surface(window.get_window()) }.unwrap();
     let adapter =
         futures::executor::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
             compatible_surface: Some(&surface),
