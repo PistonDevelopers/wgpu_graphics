@@ -10,8 +10,8 @@ use winit_window::WinitWindow;
 fn main() {
     let mut window = WinitWindow::new(&WindowSettings::new("wgpu_graphics: text_test", (500, 300)));
 
-    let instance = wgpu::Instance::new(Default::default());
-    let surface = unsafe { instance.create_surface(window.get_window()) }.unwrap();
+    let instance = wgpu::Instance::new(&Default::default());
+    let surface = instance.create_surface(window.get_window()).unwrap();
     let adapter =
         futures::executor::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
             compatible_surface: Some(&surface),
@@ -20,9 +20,9 @@ fn main() {
         .unwrap();
 
     let mut device_descriptor = wgpu::DeviceDescriptor::default();
-    device_descriptor.features.set(wgpu::Features::DEPTH_CLIP_CONTROL, true);
+    device_descriptor.required_features.set(wgpu::Features::DEPTH_CLIP_CONTROL, true);
     let (device, queue) = futures::executor::block_on(
-        adapter.request_device(&device_descriptor, None),
+        adapter.request_device(&device_descriptor),
     )
     .unwrap();
 

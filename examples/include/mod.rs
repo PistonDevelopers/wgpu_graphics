@@ -15,6 +15,7 @@ pub fn init_surface_config(
         present_mode: PresentMode::Fifo,
         alpha_mode: wgpu::CompositeAlphaMode::PostMultiplied,
         view_formats: vec![TextureFormat::Bgra8UnormSrgb],
+        desired_maximum_frame_latency: Default::default(),
     }
 }
 
