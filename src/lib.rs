@@ -10,6 +10,7 @@ use std::{
     path::Path,
 };
 use wgpu::util::DeviceExt;
+use wgpu::StoreOp;
 
 pub use graphics::ImageSize;
 pub use texture::*;
@@ -413,14 +414,14 @@ impl<'a> CreateTexture<TextureContext<'a>> for Texture {
         });
 
         queue.write_texture(
-            wgpu::ImageCopyTexture {
+            wgpu::TexelCopyTextureInfoBase {
                 texture: &texture,
                 mip_level: 0,
                 origin: wgpu::Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::All,
             },
             memory,
-            wgpu::ImageDataLayout {
+            wgpu::TexelCopyBufferLayout {
                 offset: 0,
                 bytes_per_row: Some(4 * width),
                 rows_per_image: Some(height),
@@ -522,14 +523,14 @@ impl<'a> UpdateTexture<TextureContext<'a>> for Texture {
         };
 
         queue.write_texture(
-            wgpu::ImageCopyTexture {
+            wgpu::TexelCopyTextureInfoBase {
                 texture,
                 mip_level: 0,
                 origin,
                 aspect: wgpu::TextureAspect::All,
             },
             memory,
-            wgpu::ImageDataLayout {
+            wgpu::TexelCopyBufferLayout {
                 offset: 0,
                 bytes_per_row: Some(4 * width),
                 rows_per_image: Some(height),
@@ -568,12 +569,14 @@ impl<'a> Wgpu2d<'a> {
 
         let colored_render_pipelines = PsoStencil::new(|blend, stencil| {
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                cache: None,
                 label: Some("Colored Render Pipeline"),
                 layout: Some(&colored_pipeline_layout),
                 vertex: wgpu::VertexState {
                     module: &colored_shader_module,
-                    entry_point: "vs_main",
+                    entry_point: Some("vs_main"),
                     buffers: &[ColoredPipelineInput::desc()],
+                    compilation_options: Default::default(),
                 },
                 primitive: wgpu::PrimitiveState {
                     topology: wgpu::PrimitiveTopology::TriangleList,
@@ -598,12 +601,13 @@ impl<'a> Wgpu2d<'a> {
                 },
                 fragment: Some(wgpu::FragmentState {
                     module: &colored_shader_module,
-                    entry_point: "fs_main",
+                    entry_point: Some("fs_main"),
                     targets: &[Some(wgpu::ColorTargetState {
                         format: config.format,
                         blend,
                         write_mask: wgpu::ColorWrites::ALL,
                     })],
+                    compilation_options: Default::default(),
                 }),
                 multiview: None,
             })
@@ -623,12 +627,14 @@ impl<'a> Wgpu2d<'a> {
 
         let textured_render_pipelines = PsoStencil::new(|blend, stencil| {
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                cache: None,
                 label: Some("Textured Render Pipeline"),
                 layout: Some(&textured_pipeline_layout),
                 vertex: wgpu::VertexState {
                     module: &textured_shader_module,
-                    entry_point: "vs_main",
+                    entry_point: Some("vs_main"),
                     buffers: &[TexturedPipelineInput::desc()],
+                    compilation_options: Default::default(),
                 },
                 primitive: wgpu::PrimitiveState {
                     topology: wgpu::PrimitiveTopology::TriangleList,
@@ -653,12 +659,13 @@ impl<'a> Wgpu2d<'a> {
                 },
                 fragment: Some(wgpu::FragmentState {
                     module: &textured_shader_module,
-                    entry_point: "fs_main",
+                    entry_point: Some("fs_main"),
                     targets: &[Some(wgpu::ColorTargetState {
                         format: config.format,
                         blend,
                         write_mask: wgpu::ColorWrites::ALL,
                     })],
+                    compilation_options: Default::default(),
                 }),
                 multiview: None,
             })
@@ -764,11 +771,12 @@ impl<'a> WgpuGraphics<'a> {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Render Pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    depth_slice: None,
                     view: output_view,
                     resolve_target: None,
                     ops: wgpu::Operations {
                         load: color_load,
-                        store: true,
+                        store: StoreOp::Store,
                     },
                 })],
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
@@ -776,9 +784,11 @@ impl<'a> WgpuGraphics<'a> {
                     depth_ops: None,
                     stencil_ops: Some(wgpu::Operations {
                         load: stencil_load,
-                        store: true,
+                        store: StoreOp::Store,
                     }),
                 }),
+                occlusion_query_set: None,
+                timestamp_writes: None,
             });
 
             render_pass.set_blend_constant(wgpu::Color::WHITE);
@@ -874,7 +884,7 @@ impl<'a> WgpuGraphics<'a> {
 
         let render_bundle = self.bundle(self.wgpu2d.device, |render_encoder| {
             render_encoder.set_pipeline(pipeline);
-            render_encoder.set_bind_group(0, &texture.bind_group, &[]);
+            render_encoder.set_bind_group(0, Some(&texture.bind_group), &[]);
             render_encoder.set_vertex_buffer(0, vertex_buffer.slice(..));
             render_encoder.draw(0..textured_inputs.len() as u32, 0..1);
         });
