@@ -6,6 +6,7 @@ use piston::{Button, EventSettings, Events, Key, PressEvent, RenderEvent, Window
 use texture::TextureSettings;
 use wgpu_graphics::{Texture, TextureContext};
 use winit_window::WinitWindow;
+use std::sync::Arc;
 
 fn main() {
     println!("Press A to change blending");
@@ -51,7 +52,8 @@ fn main() {
     )
     .unwrap();
 
-    let mut wgpu2d = wgpu_graphics::Wgpu2d::new(&device, &surface_config);
+    let device = Arc::new(device);
+    let mut wgpu2d = wgpu_graphics::Wgpu2d::new(device.clone(), &surface_config);
     let mut events = Events::new(EventSettings::new());
 
     while let Some(event) = events.next(&mut window) {
@@ -62,7 +64,7 @@ fn main() {
                 .texture
                 .create_view(&wgpu::TextureViewDescriptor::default());
 
-            let command_buffer = wgpu2d.draw(
+            let ((), command_buffer) = wgpu2d.draw(
                 &device,
                 &surface_config,
                 &surface_view,

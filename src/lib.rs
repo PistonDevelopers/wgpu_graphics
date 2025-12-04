@@ -8,6 +8,7 @@ use graphics::{
 use std::{
     fmt::{self, Display, Formatter},
     path::Path,
+    sync::Arc,
 };
 use wgpu::util::DeviceExt;
 use wgpu::StoreOp;
@@ -548,15 +549,15 @@ impl ImageSize for Texture {
 }
 
 /// The resource needed for rendering 2D.
-pub struct Wgpu2d<'a> {
-    device: &'a wgpu::Device,
+pub struct Wgpu2d {
+    device: Arc<wgpu::Device>,
     colored_render_pipelines: PsoStencil<wgpu::RenderPipeline>,
     textured_render_pipelines: PsoStencil<wgpu::RenderPipeline>,
 }
 
-impl<'a> Wgpu2d<'a> {
+impl Wgpu2d {
     /// Creates a new `Wgpu2d`.
-    pub fn new<'b>(device: &'a wgpu::Device, config: &'b wgpu::SurfaceConfiguration) -> Self {
+    pub fn new<'b>(device: Arc<wgpu::Device>, config: &'b wgpu::SurfaceConfiguration) -> Self {
         let colored_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Colored Pipeline Layout"),
@@ -613,7 +614,7 @@ impl<'a> Wgpu2d<'a> {
             })
         });
 
-        let textured_bind_group_layout = Texture::create_bind_group_layout(device);
+        let textured_bind_group_layout = Texture::create_bind_group_layout(&device);
 
         let textured_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -681,27 +682,27 @@ impl<'a> Wgpu2d<'a> {
     /// Performs 2D graphics operations and returns encoded commands.
     ///
     /// To actually draw on a window surface, you must [`submit`](`wgpu::Queue::submit`) the returned [`CommandBuffer`](`wgpu::CommandBuffer`).
-    pub fn draw<F>(
+    pub fn draw<F, U>(
         &mut self,
         device: &wgpu::Device,
         config: &wgpu::SurfaceConfiguration,
         output_view: &wgpu::TextureView,
         viewport: Viewport,
         f: F,
-    ) -> wgpu::CommandBuffer
+    ) -> (U, wgpu::CommandBuffer)
     where
-        F: FnOnce(Context, &mut WgpuGraphics),
+        F: FnOnce(Context, &mut WgpuGraphics) -> U,
     {
         let mut g = WgpuGraphics::new(self, config);
         let c = Context::new_viewport(viewport);
-        f(c, &mut g);
-        g.draw(device, output_view)
+        let res = f(c, &mut g);
+        (res, g.draw(device, output_view))
     }
 }
 
 /// Graphics back-end.
 pub struct WgpuGraphics<'a> {
-    wgpu2d: &'a Wgpu2d<'a>,
+    wgpu2d: &'a Wgpu2d,
     width: u32,
     height: u32,
     color_format: wgpu::TextureFormat,
@@ -718,7 +719,7 @@ pub struct WgpuGraphics<'a> {
 
 impl<'a> WgpuGraphics<'a> {
     /// Creates a new `WgpuGraphics`.
-    pub fn new(wgpu2d: &'a Wgpu2d<'a>, config: &wgpu::SurfaceConfiguration) -> Self {
+    pub fn new(wgpu2d: &'a Wgpu2d, config: &wgpu::SurfaceConfiguration) -> Self {
         let size = wgpu::Extent3d {
             width: config.width,
             height: config.height,
@@ -852,7 +853,7 @@ impl<'a> WgpuGraphics<'a> {
             .colored_render_pipelines
             .stencil_blend(draw_state.stencil, draw_state.blend);
 
-        let render_bundle = self.bundle(self.wgpu2d.device, |render_encoder| {
+        let render_bundle = self.bundle(&self.wgpu2d.device, |render_encoder| {
             render_encoder.set_pipeline(pipeline);
             render_encoder.set_vertex_buffer(0, vertex_buffer.slice(..));
             render_encoder.draw(0..colored_inputs.len() as u32, 0..1);
@@ -882,7 +883,7 @@ impl<'a> WgpuGraphics<'a> {
             .textured_render_pipelines
             .stencil_blend(draw_state.stencil, draw_state.blend);
 
-        let render_bundle = self.bundle(self.wgpu2d.device, |render_encoder| {
+        let render_bundle = self.bundle(&self.wgpu2d.device, |render_encoder| {
             render_encoder.set_pipeline(pipeline);
             render_encoder.set_bind_group(0, Some(&texture.bind_group), &[]);
             render_encoder.set_vertex_buffer(0, vertex_buffer.slice(..));

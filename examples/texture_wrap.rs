@@ -6,6 +6,7 @@ use piston::{Button, EventSettings, Events, Key, PressEvent, RenderEvent, Window
 use texture::{TextureSettings, Wrap};
 use wgpu_graphics::{Texture, TextureContext};
 use winit_window::WinitWindow;
+use std::sync::Arc;
 
 fn main() {
     println!("Press U to change the texture wrap mode for the u coordinate");
@@ -47,6 +48,7 @@ fn main() {
     let mut texture_settings = TextureSettings::new();
     texture_settings.set_border_color([0.0, 0.0, 0.0, 1.0]);
 
+    let device = Arc::new(device);
     let mut texture_context = TextureContext::from_parts(&device, &queue);
     let mut rust_logo = Texture::from_path(
         &mut texture_context,
@@ -55,7 +57,7 @@ fn main() {
     )
     .unwrap();
 
-    let mut wgpu2d = wgpu_graphics::Wgpu2d::new(&device, &surface_config);
+    let mut wgpu2d = wgpu_graphics::Wgpu2d::new(device.clone(), &surface_config);
     let mut events = Events::new(EventSettings::new());
 
     while let Some(event) = events.next(&mut window) {
@@ -66,7 +68,7 @@ fn main() {
                 .texture
                 .create_view(&wgpu::TextureViewDescriptor::default());
 
-            let command_buffer = wgpu2d.draw(
+            let ((), command_buffer) = wgpu2d.draw(
                 &device,
                 &surface_config,
                 &surface_view,

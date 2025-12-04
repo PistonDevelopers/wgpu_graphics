@@ -6,9 +6,13 @@ use piston::{EventSettings, Events, RenderEvent, WindowSettings};
 use texture::TextureSettings;
 use wgpu_graphics::{Texture, TextureContext};
 use winit_window::WinitWindow;
+use std::sync::Arc;
 
 fn main() {
-    let mut window = WinitWindow::new(&WindowSettings::new("wgpu_graphics example", (300, 300)));
+    let mut window = WinitWindow::new(
+        &WindowSettings::new("wgpu_graphics example", (300, 300))
+            .exit_on_esc(true)
+    );
 
     let instance = wgpu::Instance::new(&Default::default());
     let surface = instance.create_surface(window.get_window()).unwrap();
@@ -39,7 +43,8 @@ fn main() {
     )
     .unwrap();
 
-    let mut wgpu2d = wgpu_graphics::Wgpu2d::new(&device, &surface_config);
+    let device = Arc::new(device);
+    let mut wgpu2d = wgpu_graphics::Wgpu2d::new(device.clone(), &surface_config);
     let mut events = Events::new(EventSettings::new());
 
     while let Some(event) = events.next(&mut window) {
@@ -50,7 +55,7 @@ fn main() {
                 .texture
                 .create_view(&wgpu::TextureViewDescriptor::default());
 
-            let command_buffer = wgpu2d.draw(
+            let ((), command_buffer) = wgpu2d.draw(
                 &device,
                 &surface_config,
                 &surface_view,
