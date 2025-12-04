@@ -6,6 +6,7 @@ use piston::{EventSettings, Events, RenderEvent, WindowSettings};
 use texture::TextureSettings;
 use wgpu_graphics::{GlyphCache, TextureContext};
 use winit_window::WinitWindow;
+use std::sync::Arc;
 
 fn main() {
     let mut window = WinitWindow::new(&WindowSettings::new("wgpu_graphics: text_test", (500, 300)));
@@ -32,6 +33,7 @@ fn main() {
     let assets = find_folder::Search::ParentsThenKids(3, 3)
         .for_folder("assets")
         .unwrap();
+    let device = Arc::new(device);
     let texture_context = TextureContext::from_parts(&device, &queue);
     let mut glyph_cache = GlyphCache::new(
         assets.join("FiraSans-Regular.ttf"),
@@ -40,7 +42,7 @@ fn main() {
     )
     .unwrap();
 
-    let mut wgpu2d = wgpu_graphics::Wgpu2d::new(&device, &surface_config);
+    let mut wgpu2d = wgpu_graphics::Wgpu2d::new(device.clone(), &surface_config);
     let mut events = Events::new(EventSettings::new());
 
     while let Some(event) = events.next(&mut window) {
@@ -51,7 +53,7 @@ fn main() {
                 .texture
                 .create_view(&wgpu::TextureViewDescriptor::default());
 
-            let command_buffer = wgpu2d.draw(
+            let ((), command_buffer) = wgpu2d.draw(
                 &device,
                 &surface_config,
                 &surface_view,

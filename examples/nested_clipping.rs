@@ -8,6 +8,7 @@ use graphics::{
 };
 use piston::{EventSettings, Events, PressEvent, RenderEvent, WindowSettings};
 use winit_window::WinitWindow;
+use std::sync::Arc;
 
 fn main() {
     let mut window = WinitWindow::new(&WindowSettings::new(
@@ -34,7 +35,8 @@ fn main() {
 
     surface.configure(&device, &surface_config);
 
-    let mut wgpu2d = wgpu_graphics::Wgpu2d::new(&device, &surface_config);
+    let device = Arc::new(device);
+    let mut wgpu2d = wgpu_graphics::Wgpu2d::new(device.clone(), &surface_config);
     let mut events = Events::new(EventSettings::new());
 
     let increment = DrawState::new_increment();
@@ -62,7 +64,7 @@ fn main() {
                 .texture
                 .create_view(&wgpu::TextureViewDescriptor::default());
 
-            let command_buffer = wgpu2d.draw(
+            let ((), command_buffer) = wgpu2d.draw(
                 &device,
                 &surface_config,
                 &surface_view,
