@@ -1,4 +1,4 @@
-//! A [Piston 2D graphics](https://github.com/pistondevelopers/graphics) back-end using [wgpu](https://github.com/gfx-rs/wgpu).
+#![doc = include_str!("../README.md")]
 
 use graphics::{
     draw_state::{Blend, Stencil},
@@ -513,7 +513,7 @@ impl<'a> UpdateTexture<TextureContext<'a>> for Texture {
         O: Into<[u32; 2]>,
         S: Into<[u32; 2]>,
     {
-        let Texture { ref texture, .. } = self;
+        let &mut Texture { ref texture, .. } = self;
         let [x, y] = offset.into();
         let [width, height] = size.into();
 
