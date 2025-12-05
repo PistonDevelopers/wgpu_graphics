@@ -557,7 +557,10 @@ pub struct Wgpu2d {
 
 impl Wgpu2d {
     /// Creates a new `Wgpu2d`.
-    pub fn new<'b>(device: Arc<wgpu::Device>, config: &'b wgpu::SurfaceConfiguration) -> Self {
+    pub fn new<'b>(
+        device: Arc<wgpu::Device>,
+        config: &'b wgpu::SurfaceConfiguration,
+    ) -> Self {
         let colored_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Colored Pipeline Layout"),
@@ -684,7 +687,6 @@ impl Wgpu2d {
     /// To actually draw on a window surface, you must [`submit`](`wgpu::Queue::submit`) the returned [`CommandBuffer`](`wgpu::CommandBuffer`).
     pub fn draw<F, U>(
         &mut self,
-        device: &wgpu::Device,
         config: &wgpu::SurfaceConfiguration,
         output_view: &wgpu::TextureView,
         viewport: Viewport,
@@ -696,7 +698,7 @@ impl Wgpu2d {
         let mut g = WgpuGraphics::new(self, config);
         let c = Context::new_viewport(viewport);
         let res = f(c, &mut g);
-        (res, g.draw(device, output_view))
+        (res, g.draw(output_view))
     }
 }
 
@@ -715,6 +717,7 @@ pub struct WgpuGraphics<'a> {
         Option<u8>,
         wgpu::RenderBundle,
     )>,
+    command_encoder: wgpu::CommandEncoder,
 }
 
 impl<'a> WgpuGraphics<'a> {
@@ -725,7 +728,8 @@ impl<'a> WgpuGraphics<'a> {
             height: config.height,
             depth_or_array_layers: 1,
         };
-        let stencil = wgpu2d.device.create_texture(&wgpu::TextureDescriptor {
+        let device = &wgpu2d.device;
+        let stencil = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Stencil Texture"),
             size,
             mip_level_count: 1,
@@ -739,6 +743,9 @@ impl<'a> WgpuGraphics<'a> {
             label: Some("Stencil Texture View"),
             ..Default::default()
         });
+        let command_encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("Command Encoder"),
+        });
         Self {
             wgpu2d,
             width: config.width,
@@ -748,17 +755,14 @@ impl<'a> WgpuGraphics<'a> {
             clear_stencil: None,
             stencil_view,
             render_bundles: vec![],
+            command_encoder,
         }
     }
 
     /// Performs 2D graphics operations and returns encoded commands.
     ///
     /// To actually draw on a window surface, you must [`submit`](`wgpu::Queue::submit`) the returned [`CommandBuffer`](`wgpu::CommandBuffer`).
-    pub fn draw(
-        self,
-        device: &wgpu::Device,
-        output_view: &wgpu::TextureView,
-    ) -> wgpu::CommandBuffer {
+    pub fn draw(self, output_view: &wgpu::TextureView) -> wgpu::CommandBuffer {
         let color_load = match self.clear_color {
             Some(c) => wgpu::LoadOp::Clear(to_wgpu_color(c)),
             None => wgpu::LoadOp::Load,
@@ -768,7 +772,9 @@ impl<'a> WgpuGraphics<'a> {
             None => wgpu::LoadOp::Load,
         };
 
-        encode(device, |encoder| {
+        let mut encoder = self.command_encoder;
+
+        {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Render Pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -811,7 +817,9 @@ impl<'a> WgpuGraphics<'a> {
                 }
                 render_pass.execute_bundles(std::iter::once(render_bundle));
             }
-        })
+        }
+
+        encoder.finish()
     }
 
     fn bundle<'b, F>(&self, device: &'b wgpu::Device, f: F) -> wgpu::RenderBundle
@@ -974,19 +982,6 @@ impl<'a> Graphics for WgpuGraphics<'a> {
             self.bundle_textured(&pipeline_inputs, texture, draw_state);
         })
     }
-}
-
-fn encode<F>(device: &wgpu::Device, f: F) -> wgpu::CommandBuffer
-where
-    F: FnOnce(&mut wgpu::CommandEncoder),
-{
-    let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-        label: Some("Command Encoder"),
-    });
-
-    f(&mut encoder);
-
-    encoder.finish()
 }
 
 fn to_wgpu_color(color: Color) -> wgpu::Color {

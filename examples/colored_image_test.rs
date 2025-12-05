@@ -9,10 +9,9 @@ use winit_window::WinitWindow;
 use std::sync::Arc;
 
 fn main() {
-    let mut window = WinitWindow::new(
-        &WindowSettings::new("wgpu_graphics example", (300, 300))
-            .exit_on_esc(true)
-    );
+    let settings = WindowSettings::new("wgpu_graphics example", (300, 300))
+        .exit_on_esc(true);
+    let mut window = WinitWindow::new(&settings);
 
     let instance = wgpu::Instance::new(&Default::default());
     let surface = instance.create_surface(window.get_window()).unwrap();
@@ -56,7 +55,6 @@ fn main() {
                 .create_view(&wgpu::TextureViewDescriptor::default());
 
             let ((), command_buffer) = wgpu2d.draw(
-                &device,
                 &surface_config,
                 &surface_view,
                 render_args.viewport(),

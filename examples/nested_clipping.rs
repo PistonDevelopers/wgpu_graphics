@@ -65,7 +65,6 @@ fn main() {
                 .create_view(&wgpu::TextureViewDescriptor::default());
 
             let ((), command_buffer) = wgpu2d.draw(
-                &device,
                 &surface_config,
                 &surface_view,
                 render_args.viewport(),
