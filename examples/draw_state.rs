@@ -12,7 +12,9 @@ fn main() {
     println!("Press A to change blending");
     println!("Press S to change clip inside/out");
 
-    let mut window = WinitWindow::new(&WindowSettings::new("wgpu_graphics example", (640, 480)));
+    let settings = WindowSettings::new("wgpu_graphics example", (640, 480))
+        .exit_on_esc(true);
+    let mut window = WinitWindow::new(&settings);
 
     let instance = wgpu::Instance::new(&Default::default());
     let surface = instance.create_surface(window.get_window()).unwrap();
@@ -86,7 +88,7 @@ fn main() {
                     );
 
                     let transform = c.transform.trans(100.0, 100.0);
-                    let clipped = c.draw_state.scissor([100, 100, 100, 100]);
+                    let clipped = c.draw_state.scissor([250, 250, 150, 150]);
                     Image::new().draw(&rust_logo, &clipped, transform, g);
 
                     let transform = c.transform.trans(200.0, 200.0);

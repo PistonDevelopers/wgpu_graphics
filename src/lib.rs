@@ -293,6 +293,7 @@ impl<T> PsoStencil<T> {
 }
 
 /// Represents a texture.
+#[derive(Clone, PartialEq, Eq)]
 pub struct Texture {
     texture: wgpu::Texture,
     bind_group: wgpu::BindGroup,
@@ -548,11 +549,20 @@ impl ImageSize for Texture {
     }
 }
 
+use graphics::BACK_END_MAX_VERTEX_COUNT as BUFFER_SIZE;
+// The number of chunks to fill up before rendering.
+// Amount of memory used: `BUFFER_SIZE * CHUNKS * 4 * (2 + 4)`
+// `4` for bytes per f32, and `2 + 4` for position and color.
+const CHUNKS: usize = 100;
+const SOFT_BUFFER_LIMIT: usize = CHUNKS * BUFFER_SIZE;
+
 /// The resource needed for rendering 2D.
 pub struct Wgpu2d {
     device: Arc<wgpu::Device>,
     colored_render_pipelines: PsoStencil<wgpu::RenderPipeline>,
     textured_render_pipelines: PsoStencil<wgpu::RenderPipeline>,
+    colored_data: Vec<ColoredPipelineInput>,
+    textured_data: Vec<TexturedPipelineInput>,
 }
 
 impl Wgpu2d {
@@ -679,6 +689,8 @@ impl Wgpu2d {
             device,
             colored_render_pipelines,
             textured_render_pipelines,
+            colored_data: Vec::with_capacity(SOFT_BUFFER_LIMIT),
+            textured_data: Vec::with_capacity(SOFT_BUFFER_LIMIT),
         }
     }
 
@@ -695,34 +707,32 @@ impl Wgpu2d {
     where
         F: FnOnce(Context, &mut WgpuGraphics) -> U,
     {
-        let mut g = WgpuGraphics::new(self, config);
+        let mut g = WgpuGraphics::new(self, config, output_view);
         let c = Context::new_viewport(viewport);
         let res = f(c, &mut g);
-        (res, g.draw(output_view))
+        (res, g.draw())
     }
 }
 
 /// Graphics back-end.
 pub struct WgpuGraphics<'a> {
-    wgpu2d: &'a Wgpu2d,
+    wgpu2d: &'a mut Wgpu2d,
     width: u32,
     height: u32,
-    color_format: wgpu::TextureFormat,
-    clear_color: Option<Color>,
-    clear_stencil: Option<u8>,
     stencil_view: wgpu::TextureView,
-    render_bundles: Vec<(
-        &'a wgpu::RenderPipeline,
-        Option<[u32; 4]>,
-        Option<u8>,
-        wgpu::RenderBundle,
-    )>,
     command_encoder: wgpu::CommandEncoder,
+    output_view: &'a wgpu::TextureView,
+    draw_state: DrawState,
+    texture: Option<Texture>,
 }
 
 impl<'a> WgpuGraphics<'a> {
     /// Creates a new `WgpuGraphics`.
-    pub fn new(wgpu2d: &'a Wgpu2d, config: &wgpu::SurfaceConfiguration) -> Self {
+    pub fn new(
+        wgpu2d: &'a mut Wgpu2d,
+        config: &wgpu::SurfaceConfiguration,
+        output_view: &'a wgpu::TextureView,
+    ) -> Self {
         let size = wgpu::Extent3d {
             width: config.width,
             height: config.height,
@@ -750,103 +760,59 @@ impl<'a> WgpuGraphics<'a> {
             wgpu2d,
             width: config.width,
             height: config.height,
-            color_format: config.format,
-            clear_color: None,
-            clear_stencil: None,
             stencil_view,
-            render_bundles: vec![],
             command_encoder,
+            output_view,
+            draw_state: DrawState::default(),
+            texture: None,
         }
     }
 
     /// Performs 2D graphics operations and returns encoded commands.
     ///
     /// To actually draw on a window surface, you must [`submit`](`wgpu::Queue::submit`) the returned [`CommandBuffer`](`wgpu::CommandBuffer`).
-    pub fn draw(self, output_view: &wgpu::TextureView) -> wgpu::CommandBuffer {
-        let color_load = match self.clear_color {
-            Some(c) => wgpu::LoadOp::Clear(to_wgpu_color(c)),
-            None => wgpu::LoadOp::Load,
-        };
-        let stencil_load = match self.clear_stencil {
-            Some(s) => wgpu::LoadOp::Clear(s as u32),
-            None => wgpu::LoadOp::Load,
-        };
-
-        let mut encoder = self.command_encoder;
-
-        {
-            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("Render Pass"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    depth_slice: None,
-                    view: output_view,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: color_load,
-                        store: StoreOp::Store,
-                    },
-                })],
-                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                    view: &self.stencil_view,
-                    depth_ops: None,
-                    stencil_ops: Some(wgpu::Operations {
-                        load: stencil_load,
-                        store: StoreOp::Store,
-                    }),
-                }),
-                occlusion_query_set: None,
-                timestamp_writes: None,
-            });
-
-            render_pass.set_blend_constant(wgpu::Color::WHITE);
-
-            for &(pipeline, scissor, stencil_val, ref render_bundle) in &self.render_bundles {
-                let [x, y, width, height] = match scissor {
-                    Some(rect) => rect,
-                    None => [0, 0, self.width, self.height],
-                };
-                // NOTE: Calling `set_pipeline` is duplicated with the other call in RenderBundle.
-                // This is no a bug, because `set_stencil_reference` operation will be ignored
-                // unless we call it here, and that's because pipeline's stencil flag is checked on rendering.
-                // If wgpu implemented `set_stencil_reference` in `RenderBundleEncoder`, things could be simpler.
-                render_pass.set_pipeline(pipeline);
-
-                render_pass.set_scissor_rect(x, y, width, height);
-                if let Some(stencil_val) = stencil_val {
-                    render_pass.set_stencil_reference(stencil_val as u32);
-                }
-                render_pass.execute_bundles(std::iter::once(render_bundle));
-            }
+    pub fn draw(mut self) -> wgpu::CommandBuffer {
+        if self.wgpu2d.colored_data.len() > 0 {
+            self.command_colored();
+        }
+        if self.wgpu2d.textured_data.len() > 0 {
+            self.command_textured();
         }
 
-        encoder.finish()
+        self.command_encoder.finish()
     }
 
-    fn bundle<'b, F>(&self, device: &'b wgpu::Device, f: F) -> wgpu::RenderBundle
-    where
-        F: FnOnce(&mut dyn wgpu::util::RenderEncoder<'b>),
-    {
-        let mut render_bundle_encoder =
-            device.create_render_bundle_encoder(&wgpu::RenderBundleEncoderDescriptor {
-                label: Some("Render Bundle Encoder"),
-                color_formats: &[Some(self.color_format)],
-                depth_stencil: Some(wgpu::RenderBundleDepthStencil {
-                    format: wgpu::TextureFormat::Depth24PlusStencil8,
-                    depth_read_only: true,
-                    stencil_read_only: false,
+    fn command_colored(&mut self) {
+        let draw_state = &self.draw_state;
+        let colored_inputs = &*self.wgpu2d.colored_data;
+        let output_view = self.output_view;
+        let encoder = &mut self.command_encoder;
+
+        let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("Colored Render Pass"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                depth_slice: None,
+                view: output_view,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Load,
+                    store: StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                view: &self.stencil_view,
+                depth_ops: None,
+                stencil_ops: Some(wgpu::Operations {
+                    load: wgpu::LoadOp::Load,
+                    store: StoreOp::Store,
                 }),
-                sample_count: 1,
-                multiview: None,
-            });
+            }),
+            occlusion_query_set: None,
+            timestamp_writes: None,
+        });
 
-        f(&mut render_bundle_encoder);
+        render_pass.set_blend_constant(wgpu::Color::WHITE);
 
-        render_bundle_encoder.finish(&wgpu::RenderBundleDescriptor {
-            label: Some("Render Bundle"),
-        })
-    }
-
-    fn bundle_colored(&mut self, colored_inputs: &[ColoredPipelineInput], draw_state: &DrawState) {
         let vertex_buffer =
             self.wgpu2d
                 .device
@@ -861,22 +827,54 @@ impl<'a> WgpuGraphics<'a> {
             .colored_render_pipelines
             .stencil_blend(draw_state.stencil, draw_state.blend);
 
-        let render_bundle = self.bundle(&self.wgpu2d.device, |render_encoder| {
-            render_encoder.set_pipeline(pipeline);
-            render_encoder.set_vertex_buffer(0, vertex_buffer.slice(..));
-            render_encoder.draw(0..colored_inputs.len() as u32, 0..1);
-        });
+        let [x, y, width, height] = match draw_state.scissor {
+            Some(rect) => rect,
+            None => [0, 0, self.width, self.height],
+        };
+        render_pass.set_pipeline(pipeline);
+        render_pass.set_scissor_rect(x, y, width, height);
+        if let Some(stencil_val) = stencil_val {
+            render_pass.set_stencil_reference(stencil_val as u32);
+        }
 
-        self.render_bundles
-            .push((pipeline, draw_state.scissor, stencil_val, render_bundle));
+        render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
+        render_pass.draw(0..colored_inputs.len() as u32, 0..1);
+
+        self.wgpu2d.colored_data.clear();
     }
 
-    fn bundle_textured(
-        &mut self,
-        textured_inputs: &[TexturedPipelineInput],
-        texture: &Texture,
-        draw_state: &DrawState,
-    ) {
+    fn command_textured(&mut self) {
+        let texture = &self.texture.as_ref().unwrap();
+        let draw_state = &self.draw_state;
+        let textured_inputs = &*self.wgpu2d.textured_data;
+        let output_view = self.output_view;
+        let encoder = &mut self.command_encoder;
+
+        let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("Colored Render Pass"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                depth_slice: None,
+                view: output_view,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Load,
+                    store: StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                view: &self.stencil_view,
+                depth_ops: None,
+                stencil_ops: Some(wgpu::Operations {
+                    load: wgpu::LoadOp::Load,
+                    store: StoreOp::Store,
+                }),
+            }),
+            occlusion_query_set: None,
+            timestamp_writes: None,
+        });
+
+        render_pass.set_blend_constant(wgpu::Color::WHITE);
+
         let vertex_buffer =
             self.wgpu2d
                 .device
@@ -891,15 +889,21 @@ impl<'a> WgpuGraphics<'a> {
             .textured_render_pipelines
             .stencil_blend(draw_state.stencil, draw_state.blend);
 
-        let render_bundle = self.bundle(&self.wgpu2d.device, |render_encoder| {
-            render_encoder.set_pipeline(pipeline);
-            render_encoder.set_bind_group(0, Some(&texture.bind_group), &[]);
-            render_encoder.set_vertex_buffer(0, vertex_buffer.slice(..));
-            render_encoder.draw(0..textured_inputs.len() as u32, 0..1);
-        });
+        let [x, y, width, height] = match draw_state.scissor {
+            Some(rect) => rect,
+            None => [0, 0, self.width, self.height],
+        };
+        render_pass.set_pipeline(pipeline);
+        render_pass.set_scissor_rect(x, y, width, height);
+        if let Some(stencil_val) = stencil_val {
+            render_pass.set_stencil_reference(stencil_val as u32);
+        }
 
-        self.render_bundles
-            .push((pipeline, draw_state.scissor, stencil_val, render_bundle));
+        render_pass.set_bind_group(0, Some(&texture.bind_group), &[]);
+        render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
+        render_pass.draw(0..textured_inputs.len() as u32, 0..1);
+
+        self.wgpu2d.textured_data.clear();
     }
 }
 
@@ -907,43 +911,121 @@ impl<'a> Graphics for WgpuGraphics<'a> {
     type Texture = Texture;
 
     fn clear_color(&mut self, color: Color) {
-        self.clear_color = Some(color);
-        self.render_bundles
-            .retain(|&(_, _, stencil_val, _)| stencil_val.is_some());
+        if self.wgpu2d.colored_data.len() > 0 {
+            self.command_colored();
+        }
+        if self.wgpu2d.textured_data.len() > 0 {
+            self.command_textured();
+        }
+
+        let output_view = self.output_view;
+        let color_load = wgpu::LoadOp::Clear(to_wgpu_color(color));
+        let encoder = &mut self.command_encoder;
+        let _ = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("Clear Color Render Pass"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                depth_slice: None,
+                view: output_view,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: color_load,
+                    store: StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                view: &self.stencil_view,
+                depth_ops: None,
+                stencil_ops: Some(wgpu::Operations {
+                    load: wgpu::LoadOp::Load,
+                    store: StoreOp::Store,
+                }),
+            }),
+            occlusion_query_set: None,
+            timestamp_writes: None,
+        });
     }
 
     fn clear_stencil(&mut self, value: u8) {
-        self.clear_stencil = Some(value);
-        self.render_bundles
-            .retain(|&(_, _, stencil_val, _)| stencil_val.is_none());
+        if self.wgpu2d.colored_data.len() > 0 {
+            self.command_colored();
+        }
+        if self.wgpu2d.textured_data.len() > 0 {
+            self.command_textured();
+        }
+
+        let output_view = self.output_view;
+        let stencil_load = wgpu::LoadOp::Clear(value as u32);
+        let encoder = &mut self.command_encoder;
+        let _ = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("Clear Stencil Render Pass"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                depth_slice: None,
+                view: output_view,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Load,
+                    store: StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                view: &self.stencil_view,
+                depth_ops: None,
+                stencil_ops: Some(wgpu::Operations {
+                    load: stencil_load,
+                    store: StoreOp::Store,
+                }),
+            }),
+            occlusion_query_set: None,
+            timestamp_writes: None,
+        });
     }
 
     fn tri_list<F>(&mut self, draw_state: &DrawState, &color: &[f32; 4], mut f: F)
     where
         F: FnMut(&mut dyn FnMut(&[[f32; 2]])),
     {
-        f(&mut |positions| {
-            let pipeline_inputs = positions
-                .iter()
-                .map(|&position| ColoredPipelineInput { position, color })
-                .collect::<Vec<_>>();
+        if self.wgpu2d.colored_data.len() > 0 {
+            let flush = self.wgpu2d.colored_data.len() + BUFFER_SIZE >= SOFT_BUFFER_LIMIT ||
+                draw_state != &self.draw_state;
+            if flush {self.command_colored()}
+        }
+        if self.wgpu2d.textured_data.len() > 0 {
+            self.command_textured();
+        }
 
-            self.bundle_colored(&pipeline_inputs, draw_state);
-        });
+        self.draw_state = *draw_state;
+        f(&mut |positions| {
+            if self.wgpu2d.colored_data.len() + BUFFER_SIZE >= SOFT_BUFFER_LIMIT {
+                self.command_colored();
+            }
+            self.wgpu2d.colored_data.extend(positions
+                .iter()
+                .map(|&position| ColoredPipelineInput { position, color }));
+        })
     }
 
     fn tri_list_c<F>(&mut self, draw_state: &DrawState, mut f: F)
     where
         F: FnMut(&mut dyn FnMut(&[[f32; 2]], &[[f32; 4]])),
     {
+        if self.wgpu2d.colored_data.len() > 0 {
+            let flush = self.wgpu2d.colored_data.len() + BUFFER_SIZE >= SOFT_BUFFER_LIMIT ||
+                draw_state != &self.draw_state;
+            if flush {self.command_colored()}
+        }
+        if self.wgpu2d.textured_data.len() > 0 {
+            self.command_textured();
+        }
+
+        self.draw_state = *draw_state;
         f(&mut |positions, colors| {
-            let pipeline_inputs = positions
+            if self.wgpu2d.colored_data.len() + BUFFER_SIZE >= SOFT_BUFFER_LIMIT {
+                self.command_colored();
+            }
+            self.wgpu2d.colored_data.extend(positions
                 .iter()
                 .zip(colors.iter())
-                .map(|(&position, &color)| ColoredPipelineInput { position, color })
-                .collect::<Vec<_>>();
-
-            self.bundle_colored(&pipeline_inputs, draw_state);
+                .map(|(&position, &color)| ColoredPipelineInput { position, color }));
         });
     }
 
@@ -956,14 +1038,30 @@ impl<'a> Graphics for WgpuGraphics<'a> {
     ) where
         F: FnMut(&mut dyn FnMut(&[[f32; 2]], &[[f32; 2]])),
     {
+        if self.wgpu2d.colored_data.len() > 0 {
+            self.command_colored();
+        }
+        if self.wgpu2d.textured_data.len() > 0 {
+            let flush = self.wgpu2d.textured_data.len() + BUFFER_SIZE >= SOFT_BUFFER_LIMIT ||
+                draw_state != &self.draw_state;
+            if flush {self.command_textured()}
+            else if let Some(prev_texture) = self.texture.as_ref() {
+                if texture != prev_texture {
+                    self.command_textured();
+                }
+            }
+        }
+
+        self.texture = Some(texture.clone());
+        self.draw_state = *draw_state;
         f(&mut |xys, uvs| {
-            let pipeline_inputs = xys
+            if self.wgpu2d.textured_data.len() + BUFFER_SIZE >= SOFT_BUFFER_LIMIT {
+                self.command_textured();
+            }
+            self.wgpu2d.textured_data.extend(xys
                 .iter()
                 .zip(uvs.iter())
-                .map(|(&xy, &uv)| TexturedPipelineInput { xy, uv, color })
-                .collect::<Vec<_>>();
-
-            self.bundle_textured(&pipeline_inputs, texture, draw_state);
+                .map(|(&xy, &uv)| TexturedPipelineInput { xy, uv, color }));
         })
     }
 
@@ -971,15 +1069,31 @@ impl<'a> Graphics for WgpuGraphics<'a> {
     where
         F: FnMut(&mut dyn FnMut(&[[f32; 2]], &[[f32; 2]], &[[f32; 4]])),
     {
+        if self.wgpu2d.colored_data.len() > 0 {
+            self.command_colored();
+        }
+        if self.wgpu2d.textured_data.len() > 0 {
+            let flush = self.wgpu2d.textured_data.len() + BUFFER_SIZE >= SOFT_BUFFER_LIMIT ||
+                draw_state != &self.draw_state;
+            if flush {self.command_textured()}
+            else if let Some(prev_texture) = self.texture.as_ref() {
+                if texture != prev_texture {
+                    self.command_textured();
+                }
+            }
+        }
+
+        self.texture = Some(texture.clone());
+        self.draw_state = *draw_state;
         f(&mut |xys, uvs, colors| {
-            let pipeline_inputs = xys
+            if self.wgpu2d.textured_data.len() + BUFFER_SIZE >= SOFT_BUFFER_LIMIT {
+                self.command_textured();
+            }
+            self.wgpu2d.textured_data.extend(xys
                 .iter()
                 .zip(uvs.iter())
                 .zip(colors.iter())
-                .map(|((&xy, &uv), &color)| TexturedPipelineInput { xy, uv, color })
-                .collect::<Vec<_>>();
-
-            self.bundle_textured(&pipeline_inputs, texture, draw_state);
+                .map(|((&xy, &uv), &color)| TexturedPipelineInput { xy, uv, color }));
         })
     }
 }
