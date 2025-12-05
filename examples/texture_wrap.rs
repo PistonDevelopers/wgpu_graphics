@@ -12,10 +12,9 @@ fn main() {
     println!("Press U to change the texture wrap mode for the u coordinate");
     println!("Press V to change the texture wrap mode for the v coordinate");
 
-    let mut window = WinitWindow::new(&WindowSettings::new(
-        "wgpu_graphics: texture_wrap",
-        (640, 480),
-    ));
+    let settings = WindowSettings::new("wgpu_graphics: texture_wrap", (640, 480))
+        .exit_on_esc(true);
+    let mut window = WinitWindow::new(&settings);
 
     let instance = wgpu::Instance::new(&Default::default());
     let surface = instance.create_surface(window.get_window()).unwrap();
