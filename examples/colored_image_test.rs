@@ -28,13 +28,15 @@ fn main() {
         adapter.request_device(&device_descriptor),
     )
     .unwrap();
+    let device = Arc::new(device);
+    let queue = Arc::new(queue);
     let mut surface_config = init_surface_config(&surface, &adapter, &window);
     surface.configure(&device, &surface_config);
 
     let assets = find_folder::Search::ParentsThenKids(3, 3)
         .for_folder("assets")
         .unwrap();
-    let mut texture_context = TextureContext::from_parts(&device, &queue);
+    let mut texture_context = TextureContext::from_parts(device.clone(), queue.clone());
     let rust_logo = Texture::from_path(
         &mut texture_context,
         assets.join("rust-white.png"),
@@ -42,7 +44,6 @@ fn main() {
     )
     .unwrap();
 
-    let device = Arc::new(device);
     let mut wgpu2d = wgpu_graphics::Wgpu2d::new(device.clone(), &surface_config);
     let mut events = Events::new(EventSettings::new());
 
