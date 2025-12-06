@@ -18,7 +18,7 @@ pub use texture::*;
 
 /// Stores textures for text rendering.
 pub type GlyphCache<'a> =
-    graphics::glyph_cache::rusttype::GlyphCache<'a, TextureContext<'a>, Texture>;
+    graphics::glyph_cache::rusttype::GlyphCache<'a, TextureContext, Texture>;
 
 /// Input struct for the "colored" pipeline's vertex shader.
 #[repr(C)]
@@ -302,22 +302,22 @@ pub struct Texture {
 }
 
 /// Context required to create and update textures.
-pub struct TextureContext<'a> {
-    device: &'a wgpu::Device,
-    queue: &'a wgpu::Queue,
+pub struct TextureContext {
+    device: Arc<wgpu::Device>,
+    queue: Arc<wgpu::Queue>,
 }
 
-impl<'a> TextureContext<'a> {
+impl TextureContext {
     /// Creates a new `TextureContext` from its parts.
-    pub fn from_parts(device: &'a wgpu::Device, queue: &'a wgpu::Queue) -> Self {
+    pub fn from_parts(device: Arc<wgpu::Device>, queue: Arc<wgpu::Queue>) -> Self {
         TextureContext { device, queue }
     }
 }
 
 impl Texture {
     /// Creates a `Texture` with image loading from `path`.
-    pub fn from_path<'a, P>(
-        context: &mut TextureContext<'a>,
+    pub fn from_path<P>(
+        context: &mut TextureContext,
         path: P,
         settings: &TextureSettings,
     ) -> Result<Self, TextureError>
@@ -334,8 +334,8 @@ impl Texture {
     }
 
     /// Creates a `Texture` with `img`.
-    pub fn from_image<'a>(
-        context: &mut TextureContext<'a>,
+    pub fn from_image(
+        context: &mut TextureContext,
         img: &image::RgbaImage,
         settings: &TextureSettings,
     ) -> Result<Self, TextureError> {
@@ -370,7 +370,7 @@ impl Texture {
     }
 }
 
-impl<'a> TextureOp<TextureContext<'a>> for Texture {
+impl TextureOp<TextureContext> for Texture {
     type Error = TextureError;
 }
 
@@ -389,9 +389,9 @@ impl Display for TextureError {
 }
 
 #[allow(clippy::float_cmp)]
-impl<'a> CreateTexture<TextureContext<'a>> for Texture {
+impl CreateTexture<TextureContext> for Texture {
     fn create<S: Into<[u32; 2]>>(
-        TextureContext { device, queue }: &mut TextureContext<'a>,
+        TextureContext { device, queue }: &mut TextureContext,
         _format: Format,
         memory: &[u8],
         size: S,
@@ -500,10 +500,10 @@ impl<'a> CreateTexture<TextureContext<'a>> for Texture {
     }
 }
 
-impl<'a> UpdateTexture<TextureContext<'a>> for Texture {
+impl UpdateTexture<TextureContext> for Texture {
     fn update<O, S>(
         &mut self,
-        TextureContext { queue, .. }: &mut TextureContext<'a>,
+        TextureContext { queue, .. }: &mut TextureContext,
         _format: Format,
         memory: &[u8],
         offset: O,

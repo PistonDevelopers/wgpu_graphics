@@ -37,7 +37,8 @@ fn main() {
         .for_folder("assets")
         .unwrap();
     let device = Arc::new(device);
-    let texture_context = TextureContext::from_parts(&device, &queue);
+    let queue = Arc::new(queue);
+    let texture_context = TextureContext::from_parts(device.clone(), queue.clone());
     let mut glyph_cache = GlyphCache::new(
         assets.join("FiraSans-Regular.ttf"),
         texture_context,

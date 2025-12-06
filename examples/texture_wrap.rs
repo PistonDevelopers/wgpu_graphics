@@ -48,7 +48,8 @@ fn main() {
     texture_settings.set_border_color([0.0, 0.0, 0.0, 1.0]);
 
     let device = Arc::new(device);
-    let mut texture_context = TextureContext::from_parts(&device, &queue);
+    let queue = Arc::new(queue);
+    let mut texture_context = TextureContext::from_parts(device.clone(), queue.clone());
     let mut rust_logo = Texture::from_path(
         &mut texture_context,
         assets.join("rust.png"),
