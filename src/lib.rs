@@ -302,6 +302,7 @@ pub struct Texture {
 }
 
 /// Context required to create and update textures.
+#[derive(Clone)]
 pub struct TextureContext {
     device: Arc<wgpu::Device>,
     queue: Arc<wgpu::Queue>,
