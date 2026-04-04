@@ -13,7 +13,7 @@ fn main() {
         .exit_on_esc(true);
     let mut window = WinitWindow::new(&settings);
 
-    let instance = wgpu::Instance::new(&Default::default());
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
     let surface = instance.create_surface(window.get_window()).unwrap();
     let adapter =
         futures::executor::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
@@ -50,7 +50,9 @@ fn main() {
     while let Some(event) = events.next(&mut window) {
         event_resize(&event, &device, &surface, &mut surface_config);
         event.render(|render_args| {
-            let surface_texture = surface.get_current_texture().unwrap();
+            let surface_texture =
+                if let wgpu::CurrentSurfaceTexture::Success(x) = surface.get_current_texture() {x}
+                else {return};
             let surface_view = surface_texture
                 .texture
                 .create_view(&wgpu::TextureViewDescriptor::default());
