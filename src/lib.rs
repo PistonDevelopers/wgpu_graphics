@@ -460,8 +460,8 @@ impl CreateTexture<TextureContext> for Texture {
                 Filter::Nearest => wgpu::FilterMode::Nearest,
             },
             mipmap_filter: match settings.get_mipmap() {
-                Filter::Linear => wgpu::FilterMode::Linear,
-                Filter::Nearest => wgpu::FilterMode::Nearest,
+                Filter::Linear => wgpu::MipmapFilterMode::Linear,
+                Filter::Nearest => wgpu::MipmapFilterMode::Nearest,
             },
             border_color: if settings.get_border_color() == [0.0; 4] {
                 Some(wgpu::SamplerBorderColor::TransparentBlack)
@@ -576,7 +576,7 @@ impl Wgpu2d {
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Colored Pipeline Layout"),
                 bind_group_layouts: &[],
-                push_constant_ranges: &[],
+                immediate_size: 0,
             });
 
         let colored_shader_module =
@@ -604,8 +604,8 @@ impl Wgpu2d {
                 },
                 depth_stencil: Some(wgpu::DepthStencilState {
                     format: wgpu::TextureFormat::Depth24PlusStencil8,
-                    depth_write_enabled: false,
-                    depth_compare: wgpu::CompareFunction::Always,
+                    depth_write_enabled: Some(false),
+                    depth_compare: Some(wgpu::CompareFunction::Always),
                     stencil,
                     bias: wgpu::DepthBiasState::default(),
                 }),
@@ -614,6 +614,7 @@ impl Wgpu2d {
                     mask: !0,
                     alpha_to_coverage_enabled: false,
                 },
+                multiview_mask: None,
                 fragment: Some(wgpu::FragmentState {
                     module: &colored_shader_module,
                     entry_point: Some("fs_main"),
@@ -624,7 +625,6 @@ impl Wgpu2d {
                     })],
                     compilation_options: Default::default(),
                 }),
-                multiview: None,
             })
         });
 
@@ -633,8 +633,8 @@ impl Wgpu2d {
         let textured_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Textured Pipeline Layout"),
-                bind_group_layouts: &[&textured_bind_group_layout],
-                push_constant_ranges: &[],
+                bind_group_layouts: &[Some(&textured_bind_group_layout)],
+                immediate_size: 0,
             });
 
         let textured_shader_module =
@@ -662,8 +662,8 @@ impl Wgpu2d {
                 },
                 depth_stencil: Some(wgpu::DepthStencilState {
                     format: wgpu::TextureFormat::Depth24PlusStencil8,
-                    depth_write_enabled: false,
-                    depth_compare: wgpu::CompareFunction::Always,
+                    depth_write_enabled: Some(false),
+                    depth_compare: Some(wgpu::CompareFunction::Always),
                     stencil,
                     bias: wgpu::DepthBiasState::default(),
                 }),
@@ -672,6 +672,7 @@ impl Wgpu2d {
                     mask: !0,
                     alpha_to_coverage_enabled: false,
                 },
+                multiview_mask: None,
                 fragment: Some(wgpu::FragmentState {
                     module: &textured_shader_module,
                     entry_point: Some("fs_main"),
@@ -682,7 +683,6 @@ impl Wgpu2d {
                     })],
                     compilation_options: Default::default(),
                 }),
-                multiview: None,
             })
         });
 
@@ -791,6 +791,7 @@ impl<'a> WgpuGraphics<'a> {
 
         let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("Colored Render Pass"),
+            multiview_mask: None,
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                 depth_slice: None,
                 view: output_view,
@@ -853,6 +854,7 @@ impl<'a> WgpuGraphics<'a> {
 
         let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("Colored Render Pass"),
+            multiview_mask: None,
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                 depth_slice: None,
                 view: output_view,
@@ -924,6 +926,7 @@ impl<'a> Graphics for WgpuGraphics<'a> {
         let encoder = &mut self.command_encoder;
         let _ = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("Clear Color Render Pass"),
+            multiview_mask: None,
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                 depth_slice: None,
                 view: output_view,
@@ -959,6 +962,7 @@ impl<'a> Graphics for WgpuGraphics<'a> {
         let encoder = &mut self.command_encoder;
         let _ = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("Clear Stencil Render Pass"),
+            multiview_mask: None,
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                 depth_slice: None,
                 view: output_view,
